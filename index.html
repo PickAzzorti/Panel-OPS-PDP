@@ -217,6 +217,13 @@
     color:var(--text-muted);background:var(--neutral-bg);padding:2px 7px;border-radius:999px;
   }
   .kpi .pin.active{color:#fff;background:var(--series-1);}
+  .seg-toggle{display:inline-flex;gap:2px;background:var(--neutral-bg);border-radius:999px;padding:2px;}
+  .seg-btn{
+    font-family:inherit;font-size:11px;font-weight:600;
+    padding:4px 10px;border-radius:999px;border:none;
+    background:transparent;color:var(--text-secondary);cursor:pointer;
+  }
+  .seg-btn.active{background:var(--series-1);color:#fff;}
 
   /* ---- Charts ---- */
   .charts-row{display:grid;grid-template-columns:1.3fr 1fr;gap:14px;margin-bottom:18px;}
@@ -320,7 +327,7 @@
   </div>
 
   <div class="card" id="incidenciasDetailCard" style="display:none;padding:16px;margin-bottom:18px;">
-    <h3 style="font-size:13px;margin:0 0 10px;">Empleados con incidencias recurrentes (top 10 del per&iacute;odo)</h3>
+    <h3 id="incidenciasDetailTitle" style="font-size:13px;margin:0 0 10px;">Empleados con incidencias recurrentes (top 10 del per&iacute;odo)</h3>
     <div id="incidenciasDetail"></div>
   </div>
 
@@ -456,6 +463,24 @@
 
   var uniqueCiudades = Array.from(new Set(records.map(function(r){return r.ciudad;}))).filter(Boolean).sort();
   var uniqueTurnos = Array.from(new Set(records.map(function(r){return r.turno;}))).filter(Boolean).sort();
+
+  /* Domingos sin programación: si NINGÚN registro de un domingo tiene el
+     turno "6:30 AM - 3:54 PM", ese domingo no tuvo programación y no debe
+     contar como falta/asistencia para nadie. Se usa (solo) en la tarjeta
+     de Incidencias recurrentes / Asistencia perfecta, en ambos modos —
+     el resto del dashboard no se ve afectado. */
+  var SHIFT_636 = '6:30 AM - 3:54 PM';
+  var EXCLUDED_SUNDAYS = {};
+  uniqueDates.forEach(function(d){
+    var parts = d.split('-').map(Number);
+    var dt = new Date(parts[0], parts[1]-1, parts[2]);
+    if (dt.getDay() !== 0) return;
+    var hayTurno = records.some(function(r){ return r.fecha === d && r.turno === SHIFT_636; });
+    if (!hayTurno) EXCLUDED_SUNDAYS[d] = true;
+  });
+  function excludeSundaysSinProgramacion(list){
+    return list.filter(function(r){ return !EXCLUDED_SUNDAYS[r.fecha]; });
+  }
 
   var periodoStart = uniqueDates[0], periodoEnd = uniqueDates[uniqueDates.length-1];
   var periodoRangeLabel = '';
@@ -752,6 +777,10 @@
 
   /* ---------- Incidencias por empleado (faltas/permisos/incapacidad/ausencia) ---------- */
   var INCIDENCIA_KEYS = ['0','PE','IN','AU'];
+  /* Modo de la tarjeta "Incidencias recurrentes": 'AUSENCIAS' (los que más
+     han faltado, comportamiento original) o 'ASISTENCIA' (los que no han
+     faltado ni una vez). Estado de UI, persiste entre renders. */
+  var incidenciasMode = 'AUSENCIAS';
   function computeIncidencias(list){
     var map = {};
     list.forEach(function(r){
@@ -766,6 +795,24 @@
     var list = Object.keys(map).map(function(k){ return map[k]; });
     list.sort(function(a,b){ return b.count - a.count; });
     return list;
+  }
+  /* Empleados con asistencia perfecta: cero incidencias (INCIDENCIA_KEYS)
+     entre sus registros de la lista recibida (ya sin domingos sin
+     programación). VAC y "sin registrar" no cuentan como incidencia,
+     igual que en computeIncidencias(). */
+  function computeAsistenciaPerfecta(list){
+    var map = {};
+    list.forEach(function(r){
+      var k = asistKey(r.asistencia);
+      if (!map[r.cedula]){
+        map[r.cedula] = {cedula:r.cedula, nombre:r.nombre, ciudad:r.ciudad, turnos:0, incidencias:0};
+      }
+      map[r.cedula].turnos++;
+      if (INCIDENCIA_KEYS.indexOf(k) !== -1) map[r.cedula].incidencias++;
+    });
+    var out = Object.keys(map).map(function(k){ return map[k]; }).filter(function(x){ return x.incidencias === 0; });
+    out.sort(function(a,b){ return b.turnos - a.turnos; });
+    return out;
   }
 
   /* ---------- KPIs globales ----------
@@ -796,10 +843,14 @@
     var tasaTxt = tasa.toFixed(1) + '%';
     var accentClass = tasa >= 90 ? 'accent-good' : (tasa >= 75 ? 'accent-money' : 'accent-critical');
 
-    var incList = computeIncidencias(corteRecords);
+    /* Incidencias recurrentes / Asistencia perfecta: excluyen domingos sin
+       programación (ver excludeSundaysSinProgramacion), en ambos modos. */
+    var incRecords = excludeSundaysSinProgramacion(corteRecords);
+    var incList = computeIncidencias(incRecords);
     var conIncidencia = incList.length;
     var recurrentes = incList.filter(function(x){ return x.count >= 2; });
-    var recAccent = recurrentes.length === 0 ? 'accent-good' : (recurrentes.length <= 3 ? 'accent-money' : 'accent-critical');
+    var perfectos = computeAsistenciaPerfecta(incRecords);
+    var totalEmpleadosPeriodo = Array.from(new Set(incRecords.map(function(r){ return r.cedula; }))).length;
 
     var totalExtrasSub = hasCorte ? ('Corte: '+corteLabel(corteIni, corteFin)) : ('Todo el período ('+periodoRangeLabel+')');
 
@@ -819,16 +870,49 @@
       '</div>';
 
     var incWrap = document.getElementById('incidenciasCardWrap');
-    incWrap.innerHTML =
-      '<div class="card kpi '+recAccent+'">' +
-        '<span class="'+pinCls+'">'+pinTxt+'</span>' +
-        '<span class="label">Incidencias recurrentes</span>' +
-        '<span class="value">'+recurrentes.length+'</span>' +
-        '<span class="sub">de '+conIncidencia+' empleados con alguna incidencia'+(hasCorte ? ' en el corte seleccionado' : ' en el período')+'</span>' +
-        '<button class="link-btn" id="btnVerIncidencias">Ver detalle &rarr;</button>' +
+    var detailCard = document.getElementById('incidenciasDetailCard');
+    var detailShowing = detailCard.style.display !== 'none';
+    var toggleHTML =
+      '<div class="seg-toggle">' +
+        '<button type="button" class="seg-btn'+(incidenciasMode==='AUSENCIAS'?' active':'')+'" data-mode="AUSENCIAS">Ausencias</button>' +
+        '<button type="button" class="seg-btn'+(incidenciasMode==='ASISTENCIA'?' active':'')+'" data-mode="ASISTENCIA">Asistencia</button>' +
       '</div>';
 
-    var detailCard = document.getElementById('incidenciasDetailCard');
+    var cardLabel, cardValue, cardSub, cardAccent;
+    if (incidenciasMode === 'ASISTENCIA'){
+      cardLabel = 'Asistencia perfecta';
+      cardValue = perfectos.length;
+      cardSub = 'de '+totalEmpleadosPeriodo+' empleados programados'+(hasCorte ? ' en el corte seleccionado' : ' en el período')+' (sin domingos sin programación)';
+      var ratio = totalEmpleadosPeriodo ? (perfectos.length/totalEmpleadosPeriodo) : 0;
+      cardAccent = ratio >= 0.5 ? 'accent-good' : (ratio >= 0.25 ? 'accent-money' : 'accent-critical');
+    } else {
+      cardLabel = 'Incidencias recurrentes';
+      cardValue = recurrentes.length;
+      cardSub = 'de '+conIncidencia+' empleados con alguna incidencia'+(hasCorte ? ' en el corte seleccionado' : ' en el período');
+      cardAccent = recurrentes.length === 0 ? 'accent-good' : (recurrentes.length <= 3 ? 'accent-money' : 'accent-critical');
+    }
+
+    incWrap.innerHTML =
+      '<div class="card kpi '+cardAccent+'">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">' +
+          toggleHTML +
+          '<span class="'+pinCls+'">'+pinTxt+'</span>' +
+        '</div>' +
+        '<span class="label">'+cardLabel+'</span>' +
+        '<span class="value">'+cardValue+'</span>' +
+        '<span class="sub">'+cardSub+'</span>' +
+        '<button class="link-btn" id="btnVerIncidencias">'+(detailShowing ? 'Ocultar detalle' : 'Ver detalle &rarr;')+'</button>' +
+      '</div>';
+
+    incWrap.querySelectorAll('.seg-btn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var mode = btn.getAttribute('data-mode');
+        if (mode === incidenciasMode) return;
+        incidenciasMode = mode;
+        renderGlobalKPIs();
+      });
+    });
+
     var detailBtn = document.getElementById('btnVerIncidencias');
     if (detailBtn){
       detailBtn.addEventListener('click', function(){
@@ -837,26 +921,49 @@
         detailBtn.textContent = showing ? 'Ver detalle →' : 'Ocultar detalle';
       });
     }
+
+    var detailTitleEl = document.getElementById('incidenciasDetailTitle');
     var detailEl = document.getElementById('incidenciasDetail');
-    var top10 = recurrentes.slice(0, 10);
-    if (!recurrentes.length){
-      detailEl.innerHTML = '<p class="sub" style="margin:0;">Ningún empleado tiene 2 o más incidencias en el período.</p>';
+
+    if (incidenciasMode === 'ASISTENCIA'){
+      if (detailTitleEl) detailTitleEl.textContent = 'Empleados con asistencia perfecta (top 10 del período)';
+      var topPerf = perfectos.slice(0, 10);
+      if (!perfectos.length){
+        detailEl.innerHTML = '<p class="sub" style="margin:0;">Ningún empleado tiene asistencia perfecta en el período (excluyendo domingos sin programación).</p>';
+      } else {
+        var noteTopPerf = perfectos.length > 10
+          ? '<p class="sub" style="margin:0 0 8px;">Mostrando el top 10 de '+perfectos.length+' empleados con asistencia perfecta.</p>'
+          : '';
+        var rowsPerf = topPerf.map(function(x){
+          return '<tr><td>'+x.nombre+'</td><td>'+x.cedula+'</td><td>'+x.ciudad+'</td><td class="num">'+x.turnos+'</td></tr>';
+        }).join('');
+        detailEl.innerHTML = noteTopPerf +
+          '<div class="table-scroll"><table class="main" style="min-width:0;"><thead><tr>' +
+          '<th>Nombre</th><th>C&eacute;dula</th><th>Ciudad</th><th class="num">Turnos cumplidos</th>' +
+          '</tr></thead><tbody>'+rowsPerf+'</tbody></table></div>';
+      }
     } else {
-      var noteTop = recurrentes.length > 10
-        ? '<p class="sub" style="margin:0 0 8px;">Mostrando el top 10 de '+recurrentes.length+' empleados con 2 o más incidencias.</p>'
-        : '';
-      var rows = top10.map(function(x){
-        var chips = '';
-        if (x.b['0']) chips += '<span class="badge critical">'+x.b['0']+' no vino</span> ';
-        if (x.b['AU']) chips += '<span class="badge critical">'+x.b['AU']+' ausencia</span> ';
-        if (x.b['PE']) chips += '<span class="badge warning">'+x.b['PE']+' permiso</span> ';
-        if (x.b['IN']) chips += '<span class="badge serious">'+x.b['IN']+' incapacidad</span> ';
-        return '<tr><td>'+x.nombre+'</td><td>'+x.cedula+'</td><td>'+x.ciudad+'</td><td class="num">'+x.count+'</td><td>'+chips+'</td></tr>';
-      }).join('');
-      detailEl.innerHTML = noteTop +
-        '<div class="table-scroll"><table class="main" style="min-width:0;"><thead><tr>' +
-        '<th>Nombre</th><th>C&eacute;dula</th><th>Ciudad</th><th class="num">Incidencias</th><th>Detalle</th>' +
-        '</tr></thead><tbody>'+rows+'</tbody></table></div>';
+      if (detailTitleEl) detailTitleEl.textContent = 'Empleados con incidencias recurrentes (top 10 del período)';
+      var top10 = recurrentes.slice(0, 10);
+      if (!recurrentes.length){
+        detailEl.innerHTML = '<p class="sub" style="margin:0;">Ningún empleado tiene 2 o más incidencias en el período.</p>';
+      } else {
+        var noteTop = recurrentes.length > 10
+          ? '<p class="sub" style="margin:0 0 8px;">Mostrando el top 10 de '+recurrentes.length+' empleados con 2 o más incidencias.</p>'
+          : '';
+        var rows = top10.map(function(x){
+          var chips = '';
+          if (x.b['0']) chips += '<span class="badge critical">'+x.b['0']+' no vino</span> ';
+          if (x.b['AU']) chips += '<span class="badge critical">'+x.b['AU']+' ausencia</span> ';
+          if (x.b['PE']) chips += '<span class="badge warning">'+x.b['PE']+' permiso</span> ';
+          if (x.b['IN']) chips += '<span class="badge serious">'+x.b['IN']+' incapacidad</span> ';
+          return '<tr><td>'+x.nombre+'</td><td>'+x.cedula+'</td><td>'+x.ciudad+'</td><td class="num">'+x.count+'</td><td>'+chips+'</td></tr>';
+        }).join('');
+        detailEl.innerHTML = noteTop +
+          '<div class="table-scroll"><table class="main" style="min-width:0;"><thead><tr>' +
+          '<th>Nombre</th><th>C&eacute;dula</th><th>Ciudad</th><th class="num">Incidencias</th><th>Detalle</th>' +
+          '</tr></thead><tbody>'+rows+'</tbody></table></div>';
+      }
     }
 
     document.getElementById('distChartTitle').textContent =
