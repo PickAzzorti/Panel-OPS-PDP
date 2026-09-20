@@ -217,6 +217,16 @@
     color:var(--text-muted);background:var(--neutral-bg);padding:2px 7px;border-radius:999px;
   }
   .kpi .pin.active{color:#fff;background:var(--series-1);}
+  .section-toggle{
+    background:none;border:none;padding:0;cursor:pointer;
+    display:inline-flex;align-items:center;gap:5px;
+  }
+  .section-toggle:hover{color:var(--text-primary);}
+  .section-toggle-arrow{
+    display:inline-block;font-size:12px;line-height:1;
+    transition:transform 0.15s ease;
+  }
+  .section-toggle[aria-expanded="true"] .section-toggle-arrow{transform:rotate(90deg);}
   .seg-toggle{display:inline-flex;gap:2px;background:var(--neutral-bg);border-radius:999px;padding:2px;}
   .seg-btn{
     font-family:inherit;font-size:11px;font-weight:600;
@@ -295,40 +305,44 @@
     <p class="meta" id="genMeta"></p>
   </header>
 
-  <div class="global-head">Indicadores generales</div>
+  <button type="button" class="global-head section-toggle" id="btnToggleIndicadoresGenerales" aria-expanded="false" aria-controls="indicadoresGeneralesBody">
+    <span class="section-toggle-arrow">&#9656;</span>Indicadores generales
+  </button>
 
-  <div class="card corte-box">
-    <div class="corte-fields">
-      <span class="corte-title">Filtro de corte</span>
-      <div class="field">
-        <label for="fGlobalIni">Fecha inicial</label>
-        <input type="date" id="fGlobalIni">
+  <div id="indicadoresGeneralesBody" style="display:none;">
+    <div class="card corte-box">
+      <div class="corte-fields">
+        <span class="corte-title">Filtro de corte</span>
+        <div class="field">
+          <label for="fGlobalIni">Fecha inicial</label>
+          <input type="date" id="fGlobalIni">
+        </div>
+        <div class="field">
+          <label for="fGlobalFin">Fecha final</label>
+          <input type="date" id="fGlobalFin">
+        </div>
+        <button class="btn ghost" id="btnCorteReset">Todo el período</button>
       </div>
-      <div class="field">
-        <label for="fGlobalFin">Fecha final</label>
-        <input type="date" id="fGlobalFin">
-      </div>
-      <button class="btn ghost" id="btnCorteReset">Todo el período</button>
+      <p class="corte-note">Afecta solo: Total $ en extras, Indicador de asistencia, Incidencias recurrentes y Distribución del gasto por tipo de recargo. El resto de indicadores y gráficas siguen mostrando todo el período.</p>
     </div>
-    <p class="corte-note">Afecta solo: Total $ en extras, Indicador de asistencia, Incidencias recurrentes y Distribución del gasto por tipo de recargo. El resto de indicadores y gráficas siguen mostrando todo el período.</p>
-  </div>
-  <div class="kpi-grid kpi-grid-2" id="kpiGlobalGrid"></div>
+    <div class="kpi-grid kpi-grid-2" id="kpiGlobalGrid"></div>
 
-  <div class="incident-dist-row">
-    <div id="incidenciasCardWrap"></div>
-    <div class="card chart-card dist-card" id="distChartCard">
-      <div class="chart-head">
-        <h3 id="distChartTitle">Distribuci&oacute;n del gasto por tipo de recargo &middot; todo el per&iacute;odo</h3>
-        <button class="toggle-table" data-target="distTable">Ver tabla</button>
+    <div class="incident-dist-row">
+      <div id="incidenciasCardWrap"></div>
+      <div class="card chart-card dist-card" id="distChartCard">
+        <div class="chart-head">
+          <h3 id="distChartTitle">Distribuci&oacute;n del gasto por tipo de recargo &middot; todo el per&iacute;odo</h3>
+          <button class="toggle-table" data-target="distTable">Ver tabla</button>
+        </div>
+        <div id="distChart"></div>
+        <div id="distTable" style="display:none;margin-top:12px;"></div>
       </div>
-      <div id="distChart"></div>
-      <div id="distTable" style="display:none;margin-top:12px;"></div>
     </div>
-  </div>
 
-  <div class="card" id="incidenciasDetailCard" style="display:none;padding:16px;margin-bottom:18px;">
-    <h3 id="incidenciasDetailTitle" style="font-size:13px;margin:0 0 10px;">Empleados con incidencias recurrentes (top 10 del per&iacute;odo)</h3>
-    <div id="incidenciasDetail"></div>
+    <div class="card" id="incidenciasDetailCard" style="display:none;padding:16px;margin-bottom:18px;">
+      <h3 id="incidenciasDetailTitle" style="font-size:13px;margin:0 0 10px;">Empleados con incidencias recurrentes (top 10 del per&iacute;odo)</h3>
+      <div id="incidenciasDetail"></div>
+    </div>
   </div>
 
   <div class="card filters">
@@ -1178,6 +1192,20 @@
       btn.textContent = showing ? 'Ver tabla' : 'Ocultar tabla';
     });
   });
+
+  /* Sección "Indicadores generales" — colapsada por defecto (solo se ve
+     cuando el usuario la habilita con este botón). No afecta el cálculo de
+     nada: los KPIs de adentro se siguen renderizando igual aunque estén
+     ocultos, así que al abrirla ya están listos. */
+  var btnToggleIndicadores = document.getElementById('btnToggleIndicadoresGenerales');
+  var indicadoresBody = document.getElementById('indicadoresGeneralesBody');
+  if (btnToggleIndicadores && indicadoresBody){
+    btnToggleIndicadores.addEventListener('click', function(){
+      var showing = indicadoresBody.style.display !== 'none';
+      indicadoresBody.style.display = showing ? 'none' : 'block';
+      btnToggleIndicadores.setAttribute('aria-expanded', showing ? 'false' : 'true');
+    });
+  }
 
   /* ---------- Main table ---------- */
   var sortState = {key:'fecha', dir:1};
