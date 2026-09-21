@@ -305,6 +305,9 @@
     <p class="meta" id="genMeta"></p>
   </header>
 
+  <div class="card kpi" id="overtimeAlertCard" style="margin-bottom:16px;"></div>
+  <div class="card" id="overtimeAlertDetail" style="display:none;padding:16px;margin-bottom:18px;"></div>
+
   <button type="button" class="global-head section-toggle" id="btnToggleIndicadoresGenerales" aria-expanded="false" aria-controls="indicadoresGeneralesBody">
     <span class="section-toggle-arrow">&#9656;</span>Indicadores generales
   </button>
@@ -323,7 +326,7 @@
         </div>
         <button class="btn ghost" id="btnCorteReset">Todo el período</button>
       </div>
-      <p class="corte-note">Afecta solo: Total $ en extras, Indicador de asistencia, Incidencias recurrentes y Distribución del gasto por tipo de recargo. El resto de indicadores y gráficas siguen mostrando todo el período.</p>
+      <p class="corte-note">Afecta: Total $ en extras, Indicador de asistencia, Incidencias recurrentes, Distribución del gasto por tipo de recargo y la tabla de Detalle de personal (más abajo). El resto de indicadores y gráficas siguen mostrando todo el período.</p>
     </div>
     <div class="kpi-grid kpi-grid-2" id="kpiGlobalGrid"></div>
 
@@ -422,6 +425,7 @@
             <th data-key="asistencia">Asistencia <span class="arrow"></span></th>
             <th data-key="horas" class="num">Horas recargo <span class="arrow"></span></th>
             <th data-key="costo" class="num">Costo $ <span class="arrow"></span></th>
+            <th data-key="ovExtra" class="num">Horas extra semana <span class="arrow"></span></th>
           </tr>
         </thead>
         <tbody id="mainTbody"></tbody>
@@ -435,6 +439,7 @@
     P05 TD (trabajo dominical/festivo), P06 HEFD (hora extra festiva diurna), P07 HEFN (hora extra festiva nocturna).
     Asistencia: 1 = asistió, 0 = no programado, PE = permiso, IN = incapacidad, AU = ausencia injustificada.
     Valor hora ordinaria: $8.338. Factores de recargo: HED 1.25 &middot; HEN 1.90 &middot; RN 1.35 &middot; RND 2.25 &middot; TD 1.90 &middot; HEFD 2.15 &middot; HEFN 2.65.
+    Alerta de horas extra semanales: tope legal de 12h extra por trabajador a la semana (lunes a domingo), sumando HED+HEN+RN+RND+TD+HEFD+HEFN, según Ley 2466 de 2025, artículo 13.
     Este archivo funciona sin conexión a internet.
   </footer>
 
@@ -618,6 +623,7 @@
      también las gráficas por día y los KPIs globales/corte, que renderAll()
      por sí solo no toca. */
   document.getElementById('fTipoPersonal').addEventListener('change', function(){
+    renderOvertimeAlert();
     renderAll();
     renderAttChart();
     renderGlobalKPIs();
@@ -637,6 +643,7 @@
     document.getElementById('fAsistencia').value = 'ALL';
     document.getElementById('fTipoPersonal').value = 'ALL';
     document.getElementById('fSearch').value = '';
+    renderOvertimeAlert();
     renderAll();
     renderAttChart();
     renderGlobalKPIs();
@@ -742,6 +749,126 @@
     renderGlobalKPIs();
     renderAll();
   });
+
+  /* ---------- Alerta de horas extra semanales (Ley 2466 de 2025, art. 13)
+     ----------
+     Tope legal: 2h extra al día y 12h extra a la semana por trabajador, sin
+     excepciones (no se puede superar ni por acuerdo entre las partes). Para
+     esta alerta se cuentan TODAS las columnas con recargo (HED+HEN+RN+RND+
+     TD+HEFD+HEFN — lo mismo que ya suma totalHoras()), no solo las columnas
+     "HE*". Es intencional: la usuaria pidió tratarlas todas como parte del
+     tope semanal, como margen de seguridad adicional.
+
+     SIEMPRE calcula sobre la semana calendario (lunes a domingo) que
+     contiene la fecha de hoy — no depende de Fecha, Ciudad, Turno, Buscar
+     ni del corte. Sí respeta "Tipo personal" (usa baseRecords()), igual que
+     el resto del dashboard.
+
+     overtimeByCedula queda disponible para que renderTable() muestre la
+     misma cifra por persona en la columna "Horas extra semana" — se
+     recalcula junto con la tarjeta, antes de cada renderAll(). */
+  var OVERTIME_WEEKLY_LIMIT = 12;
+  var overtimeByCedula = {};
+  function mondayOf(dateISO){
+    var parts = dateISO.split('-').map(Number);
+    var dt = new Date(parts[0], parts[1]-1, parts[2]);
+    var day = dt.getDay(); // 0=domingo … 6=sábado
+    var diff = day === 0 ? -6 : 1 - day;
+    dt.setDate(dt.getDate() + diff);
+    return dt;
+  }
+  function isoOfDate(dt){
+    var m = dt.getMonth()+1, d = dt.getDate();
+    return dt.getFullYear() + '-' + (m<10?'0':'')+m + '-' + (d<10?'0':'')+d;
+  }
+  function currentWeekRange(){
+    var mon = mondayOf(todayISO);
+    var sun = new Date(mon);
+    sun.setDate(sun.getDate() + 6);
+    return {ini: isoOfDate(mon), fin: isoOfDate(sun)};
+  }
+  function computeHorasExtraSemana(){
+    var week = currentWeekRange();
+    var map = {};
+    baseRecords().forEach(function(r){
+      if (r.fecha < week.ini || r.fecha > week.fin) return;
+      if (!map[r.cedula]) map[r.cedula] = {cedula:r.cedula, nombre:r.nombre, ciudad:r.ciudad, horas:0};
+      map[r.cedula].horas += totalHoras(r);
+    });
+    var list = Object.keys(map).map(function(k){
+      var x = map[k];
+      x.restantes = Math.max(0, OVERTIME_WEEKLY_LIMIT - x.horas);
+      x.estado = x.horas >= OVERTIME_WEEKLY_LIMIT ? 'excedido' : (x.horas >= 8 ? 'cerca' : 'ok');
+      return x;
+    }).filter(function(x){ return x.horas > 0; });
+    list.sort(function(a,b){ return b.horas - a.horas; });
+    return {week: week, list: list};
+  }
+  function renderOvertimeAlert(){
+    var card = document.getElementById('overtimeAlertCard');
+    if (!card) return;
+    var data = computeHorasExtraSemana();
+    var list = data.list;
+    overtimeByCedula = {};
+    list.forEach(function(x){ overtimeByCedula[x.cedula] = x; });
+
+    var weekLabel = fmtDateHuman(data.week.ini) + ' – ' + fmtDateHuman(data.week.fin);
+    var excedidos = list.filter(function(x){ return x.estado === 'excedido'; });
+    var cerca = list.filter(function(x){ return x.estado === 'cerca'; });
+
+    var accent, label, value, sub;
+    if (excedidos.length){
+      accent = 'accent-critical';
+      label = 'Límite legal de horas extra superado';
+      value = excedidos.length + (excedidos.length===1?' persona':' personas');
+      sub = 'por encima de '+OVERTIME_WEEKLY_LIMIT+'h extra esta semana ('+weekLabel+') — Ley 2466 de 2025, art. 13';
+    } else if (cerca.length){
+      accent = 'accent-money';
+      label = 'Personal cerca del límite legal de horas extra';
+      value = cerca.length + (cerca.length===1?' persona':' personas');
+      sub = 'entre 8h y '+OVERTIME_WEEKLY_LIMIT+'h extra esta semana ('+weekLabel+') — revisa antes de programar más';
+    } else {
+      accent = 'accent-good';
+      label = 'Horas extra semanales bajo control';
+      value = 'Sin alertas';
+      sub = 'nadie supera '+OVERTIME_WEEKLY_LIMIT+'h extra esta semana ('+weekLabel+')';
+    }
+
+    var detailCard = document.getElementById('overtimeAlertDetail');
+    var detailShowing = detailCard.style.display !== 'none';
+    card.className = 'card kpi ' + accent;
+    card.innerHTML =
+      '<span class="label">'+label+'</span>' +
+      '<span class="value">'+value+'</span>' +
+      '<span class="sub">'+sub+'</span>' +
+      (list.length ? '<button class="link-btn" id="btnVerAlertaHoras">'+(detailShowing?'Ocultar detalle':'Ver detalle →')+'</button>' : '');
+
+    var btn = document.getElementById('btnVerAlertaHoras');
+    if (btn){
+      btn.addEventListener('click', function(){
+        var showing = detailCard.style.display !== 'none';
+        detailCard.style.display = showing ? 'none' : 'block';
+        btn.textContent = showing ? 'Ver detalle →' : 'Ocultar detalle';
+      });
+    }
+
+    if (!list.length){
+      detailCard.innerHTML = '';
+      return;
+    }
+    var rows = list.map(function(x){
+      var badgeCls = x.estado==='excedido' ? 'critical' : (x.estado==='cerca' ? 'warning' : 'good');
+      var badgeTxt = x.estado==='excedido' ? 'Excedido' : (x.estado==='cerca' ? 'Cerca del límite' : 'OK');
+      return '<tr><td>'+x.nombre+'</td><td>'+x.cedula+'</td><td>'+x.ciudad+'</td>' +
+        '<td class="num">'+fmtNum(x.horas)+'</td>' +
+        '<td class="num">'+fmtNum(x.restantes)+'</td>' +
+        '<td><span class="badge '+badgeCls+'">'+badgeTxt+'</span></td></tr>';
+    }).join('');
+    detailCard.innerHTML =
+      '<h3 style="font-size:13px;margin:0 0 10px;">Horas extra por persona · semana '+weekLabel+'</h3>' +
+      '<table class="data-table-mini"><thead><tr><th>Nombre</th><th>Cédula</th><th>Ciudad</th>' +
+      '<th>Horas extra</th><th>Restantes</th><th>Estado</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  }
 
   /* Filtro de asistencia: aplica solo a la tabla de Detalle de personal.
      '0' (no programado) NO cuenta como "no asistió" — no estaba citado ese
@@ -1284,18 +1411,20 @@
     });
 
     var rows = filtered.map(function(r){
+      var ov = overtimeByCedula[r.cedula];
       return {
         r: r,
         nombre: r.nombre, cedula: r.cedula, ciudad: r.ciudad, turno: r.turno, fecha: r.fecha,
         asistencia: asistKey(r.asistencia),
         horas: totalHoras(r),
-        costo: costo(r)
+        costo: costo(r),
+        ovExtra: ov ? ov.horas : 0
       };
     });
     var key = sortState.key, dir = sortState.dir;
     rows.sort(function(a,b){
       var va = a[key], vb = b[key];
-      if (key==='horas' || key==='costo'){ return (va-vb)*dir; }
+      if (key==='horas' || key==='costo' || key==='ovExtra'){ return (va-vb)*dir; }
       va = (va===null||va===undefined)?'':String(va);
       vb = (vb===null||vb===undefined)?'':String(vb);
       return va.localeCompare(vb, 'es') * dir;
@@ -1303,10 +1432,16 @@
 
     var tbody = document.getElementById('mainTbody');
     if (!rows.length){
-      tbody.innerHTML = '<tr class="empty-row"><td colspan="8">No hay registros que coincidan con los filtros.</td></tr>';
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="9">No hay registros que coincidan con los filtros.</td></tr>';
     } else {
       tbody.innerHTML = rows.map(function(x){
         var meta = ASIST_META[x.asistencia] || {label:'Valor inesperado: '+x.asistencia, cls:'neutral'};
+        var ov = overtimeByCedula[x.cedula];
+        var ovCell = '—';
+        if (ov){
+          var ovCls = ov.estado==='excedido' ? 'critical' : (ov.estado==='cerca' ? 'warning' : 'good');
+          ovCell = '<span class="badge '+ovCls+'">'+fmtNum(ov.horas)+'h &middot; quedan '+fmtNum(ov.restantes)+'</span>';
+        }
         return '<tr>' +
           '<td>'+x.nombre+'</td>' +
           '<td>'+x.cedula+'</td>' +
@@ -1316,6 +1451,7 @@
           '<td><span class="badge '+meta.cls+'">'+meta.label+'</span></td>' +
           '<td class="num">'+(x.horas ? fmtNum(x.horas) : '—')+'</td>' +
           '<td class="num">'+(x.costo ? fmtMoney.format(Math.round(x.costo)) : '—')+'</td>' +
+          '<td class="num">'+ovCell+'</td>' +
         '</tr>';
       }).join('');
     }
@@ -1333,6 +1469,7 @@
   renderAttChart();
   renderCostChart();
   renderGlobalKPIs();
+  renderOvertimeAlert();
   renderAll();
 
   if (periodoRangeLabel){
