@@ -407,6 +407,7 @@
         <label for="fAsistencia">Asistencia</label>
         <select id="fAsistencia"></select>
       </div>
+      <span class="count-pill" id="tableScopePill"></span>
       <span class="count-pill" id="rowCount">0 registros</span>
     </div>
     <div class="table-scroll">
@@ -674,11 +675,14 @@
   }
 
   /* ---------- Filtro de "corte" (rango de fechas independiente) ----------
-     Afecta SOLO: Total $ en extras, Indicador de asistencia, Incidencias
-     recurrentes y Distribución del gasto por tipo de recargo. No afecta la
-     fila de KPIs de arriba, la tabla de detalle, ni las gráficas por día
-     (esas siguen mostrando siempre todo el período). Rango libre (no está
-     atado a una fecha con datos): pensado para el corte mensual del usuario. */
+     Afecta: Total $ en extras, Indicador de asistencia, Incidencias
+     recurrentes, Distribución del gasto por tipo de recargo, Y (desde
+     2026-09-21) la tabla "Detalle de personal" — ver getTableFiltered()
+     más abajo, que usa este rango en vez del filtro Fecha cuando está
+     definido. No afecta la fila de KPIs de arriba (Programados, Asistieron,
+     etc.) ni las gráficas por día (esas siguen mostrando siempre todo el
+     período). Rango libre (no está atado a una fecha con datos): pensado
+     para el corte mensual del usuario. */
   function corteLabel(ini, fin){
     if (!ini && !fin) return 'todo el período';
     if (ini && fin) return fmtDateHuman(ini) + ' – ' + fmtDateHuman(fin);
@@ -696,13 +700,47 @@
       return true;
     });
   }
+  /* Filtro de fecha para la tabla de "Detalle de personal": si hay un
+     corte (fGlobalIni/fGlobalFin) definido, ese rango manda sobre el
+     filtro Fecha de la barra principal para esta tabla. Si el corte está
+     vacío, la tabla usa el filtro Fecha normal (por defecto, hoy).
+     Ciudad/Turno/Buscar siempre aplican igual, sin importar cuál fuente
+     de fecha esté activa. */
+  function getTableFiltered(){
+    var corteIni = document.getElementById('fGlobalIni').value;
+    var corteFin = document.getElementById('fGlobalFin').value;
+    var hasCorte = !!(corteIni || corteFin);
+    var fecha = document.getElementById('fFecha').value;
+    var ciudad = document.getElementById('fCiudad').value;
+    var turno = document.getElementById('fTurno').value;
+    var search = normalize(document.getElementById('fSearch').value.trim());
+    return baseRecords().filter(function(r){
+      if (hasCorte){
+        if (corteIni && r.fecha < corteIni) return false;
+        if (corteFin && r.fecha > corteFin) return false;
+      } else if (fecha !== 'ALL' && r.fecha !== fecha){
+        return false;
+      }
+      if (ciudad !== 'ALL' && r.ciudad !== ciudad) return false;
+      if (turno !== 'ALL' && r.turno !== turno) return false;
+      if (search){
+        var hay = normalize(r.nombre) + ' ' + normalize(r.cedula);
+        if (hay.indexOf(search) === -1) return false;
+      }
+      return true;
+    });
+  }
   ['fGlobalIni','fGlobalFin'].forEach(function(id){
-    document.getElementById(id).addEventListener('change', renderGlobalKPIs);
+    document.getElementById(id).addEventListener('change', function(){
+      renderGlobalKPIs();
+      renderAll();
+    });
   });
   document.getElementById('btnCorteReset').addEventListener('click', function(){
     document.getElementById('fGlobalIni').value = '';
     document.getElementById('fGlobalFin').value = '';
     renderGlobalKPIs();
+    renderAll();
   });
 
   /* Filtro de asistencia: aplica solo a la tabla de Detalle de personal.
@@ -1229,6 +1267,17 @@
   });
 
   function renderTable(filtered){
+    var scopePill = document.getElementById('tableScopePill');
+    if (scopePill){
+      var corteIni = document.getElementById('fGlobalIni').value;
+      var corteFin = document.getElementById('fGlobalFin').value;
+      if (corteIni || corteFin){
+        scopePill.textContent = 'Corte: ' + corteLabel(corteIni, corteFin);
+      } else {
+        var fecha = document.getElementById('fFecha').value;
+        scopePill.textContent = fecha === 'ALL' ? 'Fecha: todo el período' : 'Fecha: ' + DATE_LABELS[fecha];
+      }
+    }
     document.querySelectorAll('table.main th[data-key]').forEach(function(th){
       var arrow = th.querySelector('.arrow');
       arrow.textContent = th.getAttribute('data-key') === sortState.key ? (sortState.dir===1?'▲':'▼') : '';
@@ -1277,7 +1326,7 @@
   function renderAll(){
     var filtered = getFiltered();
     renderKPIs(filtered);
-    renderTable(applyAsistenciaFilter(filtered));
+    renderTable(applyAsistenciaFilter(getTableFiltered()));
     renderCostChart();
   }
 
