@@ -432,7 +432,7 @@
     Datos tomados de <strong>Programacion personal 2026.xlsx</strong>, hoja "30 al 05 Septiembre". Columnas de recargo:
     P03 HED (hora extra diurna), P04 HEN (hora extra nocturna), P08 RN (recargo nocturno), P042 RND (recargo nocturno dominical/festivo),
     P05 TD (trabajo dominical/festivo), P06 HEFD (hora extra festiva diurna), P07 HEFN (hora extra festiva nocturna).
-    Asistencia: 1 = asistió, 0 = no vino, PE = permiso, IN = incapacidad, AU = ausencia injustificada.
+    Asistencia: 1 = asistió, 0 = no programado, PE = permiso, IN = incapacidad, AU = ausencia injustificada.
     Valor hora ordinaria: $8.338. Factores de recargo: HED 1.25 &middot; HEN 1.90 &middot; RN 1.35 &middot; RND 2.25 &middot; TD 1.90 &middot; HEFD 2.15 &middot; HEFN 2.65.
     Este archivo funciona sin conexión a internet.
   </footer>
@@ -504,7 +504,7 @@
 
   var ASIST_META = {
     '1':  {label:'Asistió',              cls:'good'},
-    '0':  {label:'No vino',                cls:'critical'},
+    '0':  {label:'No programado',          cls:'neutral'},
     'PE': {label:'Permiso',                cls:'warning'},
     'IN': {label:'Incapacidad',            cls:'serious'},
     'AU': {label:'Ausencia injustificada', cls:'critical'},
@@ -705,8 +705,10 @@
     renderGlobalKPIs();
   });
 
-  /* Filtro de asistencia: aplica solo a la tabla de Detalle de personal */
-  var NO_ASISTIO_KEYS = ['0','PE','IN','AU','VAC'];
+  /* Filtro de asistencia: aplica solo a la tabla de Detalle de personal.
+     '0' (no programado) NO cuenta como "no asistió" — no estaba citado ese
+     día, así que no hay ausencia que registrar. */
+  var NO_ASISTIO_KEYS = ['PE','IN','AU','VAC'];
   function applyAsistenciaFilter(list){
     var asis = document.getElementById('fAsistencia').value;
     if (asis === 'ALL') return list;
@@ -728,12 +730,15 @@
     });
     var asistieron = counts['1'];
     var sinRegistrar = counts[''];
-    var faltaron = programados - asistieron - sinRegistrar;
+    var noProgramado = counts['0'];
+    var faltaron = programados - asistieron - sinRegistrar - noProgramado;
 
     var fechaSel = document.getElementById('fFecha').value;
     var scopeLabel = fechaSel === 'ALL' ? 'todo el período' : DATE_LABELS[fechaSel] + (fechaSel === todayISO ? ' (hoy)' : '');
 
-    var registrados = programados - sinRegistrar;
+    /* '0' = no programado ese día: no cuenta como turno registrado, igual
+       que "Sin registrar" no cuenta. */
+    var registrados = programados - sinRegistrar - noProgramado;
     var tasaDia = registrados ? (asistieron/registrados*100) : 0;
     var tasaDiaTxt = tasaDia.toFixed(1) + '%';
     var tasaDiaAccent = tasaDia >= 90 ? 'accent-good' : (tasaDia >= 75 ? 'accent-money' : 'accent-critical');
@@ -757,7 +762,6 @@
   }
   function kpiCardFaltas(faltaron, counts, programados){
     var chips = '';
-    if (counts['0']) chips += '<span class="chip critical">'+counts['0']+' no vino</span>';
     if (counts['AU']) chips += '<span class="chip critical">'+counts['AU']+' ausencia</span>';
     if (counts['PE']) chips += '<span class="chip warning">'+counts['PE']+' permiso</span>';
     if (counts['IN']) chips += '<span class="chip serious">'+counts['IN']+' incapacidad</span>';
@@ -790,7 +794,10 @@
   }
 
   /* ---------- Incidencias por empleado (faltas/permisos/incapacidad/ausencia) ---------- */
-  var INCIDENCIA_KEYS = ['0','PE','IN','AU'];
+  /* '0' (no programado) NO es una incidencia: no estaba citado ese día, así
+     que no hay ausencia que contar. Solo PE/IN/AU representan un turno
+     programado al que no se asistió (con o sin justificación). */
+  var INCIDENCIA_KEYS = ['PE','IN','AU'];
   /* Modo de la tarjeta "Incidencias recurrentes": 'AUSENCIAS' (los que más
      han faltado, comportamiento original) o 'ASISTENCIA' (los que no han
      faltado ni una vez). Estado de UI, persiste entre renders. */
@@ -801,7 +808,7 @@
       var k = asistKey(r.asistencia);
       if (INCIDENCIA_KEYS.indexOf(k) === -1) return;
       if (!map[r.cedula]){
-        map[r.cedula] = {cedula:r.cedula, nombre:r.nombre, ciudad:r.ciudad, count:0, b:{'0':0,'PE':0,'IN':0,'AU':0}};
+        map[r.cedula] = {cedula:r.cedula, nombre:r.nombre, ciudad:r.ciudad, count:0, b:{'PE':0,'IN':0,'AU':0}};
       }
       map[r.cedula].count++;
       map[r.cedula].b[k]++;
@@ -851,7 +858,9 @@
     });
     var asistieron = counts['1'];
     var sinRegistrar = counts[''];
-    var registrados = corteRecords.length - sinRegistrar;
+    var noProgramado = counts['0'];
+    /* '0' = no programado ese día: no cuenta como turno registrado. */
+    var registrados = corteRecords.length - sinRegistrar - noProgramado;
     var faltaron = registrados - asistieron;
     var tasa = registrados ? (asistieron/registrados*100) : 0;
     var tasaTxt = tasa.toFixed(1) + '%';
@@ -967,7 +976,6 @@
           : '';
         var rows = top10.map(function(x){
           var chips = '';
-          if (x.b['0']) chips += '<span class="badge critical">'+x.b['0']+' no vino</span> ';
           if (x.b['AU']) chips += '<span class="badge critical">'+x.b['AU']+' ausencia</span> ';
           if (x.b['PE']) chips += '<span class="badge warning">'+x.b['PE']+' permiso</span> ';
           if (x.b['IN']) chips += '<span class="badge serious">'+x.b['IN']+' incapacidad</span> ';
@@ -1012,8 +1020,10 @@
   function renderAttChart(){
     var base = baseRecords();
     var byDate = uniqueDates.map(function(d){
-      var recs = base.filter(function(r){return r.fecha === d;});
-      var c = {'1':0,'0':0,'PE':0,'IN':0,'AU':0,'':0};
+      /* '0' = no programado ese día: se excluye del todo (no cuenta como
+         asistió, no asistió ni sin registrar), igual que en los demás KPIs. */
+      var recs = base.filter(function(r){return r.fecha === d && asistKey(r.asistencia) !== '0';});
+      var c = {'1':0,'PE':0,'IN':0,'AU':0,'':0};
       recs.forEach(function(r){ c[asistKey(r.asistencia)]++; });
       var asistieron = c['1'];
       var sinReg = c[''];
