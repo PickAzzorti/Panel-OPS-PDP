@@ -439,7 +439,7 @@
     P05 TD (trabajo dominical/festivo), P06 HEFD (hora extra festiva diurna), P07 HEFN (hora extra festiva nocturna).
     Asistencia: 1 = asistió, 0 = no programado, PE = permiso, IN = incapacidad, AU = ausencia injustificada.
     Valor hora ordinaria: $8.338. Factores de recargo: HED 1.25 &middot; HEN 1.90 &middot; RN 1.35 &middot; RND 2.25 &middot; TD 1.90 &middot; HEFD 2.15 &middot; HEFN 2.65.
-    Alerta de horas extra: tope legal de 12h extra por trabajador a la semana, sumando HED+HEN+RN+RND+TD+HEFD+HEFN, según Ley 2466 de 2025, artículo 13. La tarjeta de arriba siempre usa la semana (lunes a domingo) que contiene la fecha de hoy; la columna "Horas extra (rango)" de Detalle de personal usa el mismo rango de fechas que esté activo en la tabla (corte o filtro Fecha).
+    Alerta de horas extra: tope legal de 12h extra por trabajador a la semana, sumando HED+HEN+TD+HEFD+HEFN (RN y RND no cuentan: son recargos por trabajar de noche dentro de la jornada ordinaria, no horas adicionales), según Ley 2466 de 2025, artículo 13. La tarjeta de arriba siempre usa la semana (lunes a domingo) que contiene la fecha de hoy; la columna "Horas extra (rango)" de Detalle de personal usa el mismo rango de fechas que esté activo en la tabla (corte o filtro Fecha).
     Este archivo funciona sin conexión a internet.
   </footer>
 
@@ -760,11 +760,20 @@
   /* ---------- Alerta de horas extra semanales (Ley 2466 de 2025, art. 13)
      ----------
      Tope legal: 2h extra al día y 12h extra a la semana por trabajador, sin
-     excepciones (no se puede superar ni por acuerdo entre las partes). Para
-     esta alerta se cuentan TODAS las columnas con recargo (HED+HEN+RN+RND+
-     TD+HEFD+HEFN — lo mismo que ya suma totalHoras()), no solo las columnas
-     "HE*". Es intencional: la usuaria pidió tratarlas todas como parte del
-     tope semanal, como margen de seguridad adicional.
+     excepciones (no se puede superar ni por acuerdo entre las partes).
+
+     Qué columnas cuentan (ajustado 2026-09-22, corrección explícita de la
+     usuaria): HED + HEN + TD + HEFD + HEFN. NO cuentan RN (recargo
+     nocturno) ni RND (recargo nocturno dominical/festivo) — son recargos
+     por trabajar de noche dentro de la jornada ordinaria, no horas
+     adicionales trabajadas más allá de esa jornada, así que no son "hora
+     extra" para efectos del tope legal. TD sí se queda en el conteo (se
+     confirmó explícitamente con la usuaria) aunque tampoco es literalmente
+     "HE*", porque representa trabajo en un día que normalmente no se
+     trabaja. (Antes, del 2026-09-21 al 2026-09-22, se contaban las 7
+     columnas de recargo — HED+HEN+RN+RND+TD+HEFD+HEFN, igual que
+     totalHoras() — por elección explícita de la usuaria en ese momento;
+     esta es la corrección posterior.)
 
      SIEMPRE calcula sobre la semana calendario (lunes a domingo) que
      contiene la fecha de hoy — no depende de Fecha, Ciudad, Turno, Buscar
@@ -778,6 +787,10 @@
      (corte o Fecha), a pedido explícito de la usuaria (2026-09-22). */
   var OVERTIME_WEEKLY_LIMIT = 12;
   var overtimeByCedula = {};
+  /* Horas que cuentan para el tope legal de horas extra — ver nota arriba.
+     Distinto de totalHoras(r), que suma las 7 columnas de recargo (esa sí
+     se usa para "Horas recargo" y "Costo $" en la tabla, sin cambios). */
+  function horasExtraLegal(r){ return r.hed + r.hen + r.td + r.hefd + r.hefn; }
   function mondayOf(dateISO){
     var parts = dateISO.split('-').map(Number);
     var dt = new Date(parts[0], parts[1]-1, parts[2]);
@@ -802,7 +815,7 @@
     baseRecords().forEach(function(r){
       if (r.fecha < week.ini || r.fecha > week.fin) return;
       if (!map[r.cedula]) map[r.cedula] = {cedula:r.cedula, nombre:r.nombre, ciudad:r.ciudad, horas:0};
-      map[r.cedula].horas += totalHoras(r);
+      map[r.cedula].horas += horasExtraLegal(r);
     });
     var list = Object.keys(map).map(function(k){
       var x = map[k];
@@ -904,7 +917,7 @@
       if (scope.ini && r.fecha < scope.ini) return;
       if (scope.fin && r.fecha > scope.fin) return;
       if (!map[r.cedula]) map[r.cedula] = {cedula:r.cedula, horas:0};
-      map[r.cedula].horas += totalHoras(r);
+      map[r.cedula].horas += horasExtraLegal(r);
     });
     Object.keys(map).forEach(function(k){
       var x = map[k];
