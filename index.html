@@ -438,7 +438,7 @@
     P03 HED (hora extra diurna), P04 HEN (hora extra nocturna), P08 RN (recargo nocturno), P042 RND (recargo nocturno dominical/festivo),
     P05 TD (trabajo dominical/festivo), P06 HEFD (hora extra festiva diurna), P07 HEFN (hora extra festiva nocturna).
     Asistencia: 1 = asistió, 0 = no programado, PE = permiso, IN = incapacidad, AU = ausencia injustificada.
-    Valor hora ordinaria: $8.338. Factores de recargo: HED 1.25 &middot; HEN 1.90 &middot; RN 1.35 &middot; RND 2.25 &middot; TD 1.90 &middot; HEFD 2.15 &middot; HEFN 2.65.
+    Valor hora ordinaria: $8.338. Factores de recargo: HED 1.25 &middot; HEN 1.90 &middot; RN 0.35 &middot; RND 2.25 &middot; TD 1.90 &middot; HEFD 2.15 &middot; HEFN 2.65.
     Alerta de horas extra: tope legal de 12h extra por trabajador a la semana, sumando HED+HEN+TD+HEFD+HEFN (RN y RND no cuentan: son recargos por trabajar de noche dentro de la jornada ordinaria, no horas adicionales), según Ley 2466 de 2025, artículo 13. La tarjeta de arriba siempre usa la semana (lunes a domingo) que contiene la fecha de hoy; la columna "Horas extra (rango)" de Detalle de personal usa el mismo rango de fechas que esté activo en la tabla (corte o filtro Fecha).
     Este archivo funciona sin conexión a internet.
   </footer>
@@ -528,7 +528,7 @@
   var factors = {
     hed:  1.25,
     hen:  1.90,
-    rn:   1.35,
+    rn:   0.35, /* corregido 2026-09-22 a pedido de la usuaria (antes 1.35) */
     rnd:  2.25,
     td:   1.90,
     hefd: 2.15,
