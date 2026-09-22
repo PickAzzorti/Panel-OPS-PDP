@@ -425,7 +425,7 @@
             <th data-key="asistencia">Asistencia <span class="arrow"></span></th>
             <th data-key="horas" class="num">Horas recargo <span class="arrow"></span></th>
             <th data-key="costo" class="num">Costo $ <span class="arrow"></span></th>
-            <th data-key="ovExtra" class="num">Horas extra semana <span class="arrow"></span></th>
+            <th data-key="ovExtra" class="num">Horas extra (rango) <span class="arrow"></span></th>
           </tr>
         </thead>
         <tbody id="mainTbody"></tbody>
@@ -439,7 +439,7 @@
     P05 TD (trabajo dominical/festivo), P06 HEFD (hora extra festiva diurna), P07 HEFN (hora extra festiva nocturna).
     Asistencia: 1 = asistió, 0 = no programado, PE = permiso, IN = incapacidad, AU = ausencia injustificada.
     Valor hora ordinaria: $8.338. Factores de recargo: HED 1.25 &middot; HEN 1.90 &middot; RN 1.35 &middot; RND 2.25 &middot; TD 1.90 &middot; HEFD 2.15 &middot; HEFN 2.65.
-    Alerta de horas extra semanales: tope legal de 12h extra por trabajador a la semana (lunes a domingo), sumando HED+HEN+RN+RND+TD+HEFD+HEFN, según Ley 2466 de 2025, artículo 13.
+    Alerta de horas extra: tope legal de 12h extra por trabajador a la semana, sumando HED+HEN+RN+RND+TD+HEFD+HEFN, según Ley 2466 de 2025, artículo 13. La tarjeta de arriba siempre usa la semana (lunes a domingo) que contiene la fecha de hoy; la columna "Horas extra (rango)" de Detalle de personal usa el mismo rango de fechas que esté activo en la tabla (corte o filtro Fecha).
     Este archivo funciona sin conexión a internet.
   </footer>
 
@@ -707,27 +707,34 @@
       return true;
     });
   }
-  /* Filtro de fecha para la tabla de "Detalle de personal": si hay un
-     corte (fGlobalIni/fGlobalFin) definido, ese rango manda sobre el
-     filtro Fecha de la barra principal para esta tabla. Si el corte está
-     vacío, la tabla usa el filtro Fecha normal (por defecto, hoy).
-     Ciudad/Turno/Buscar siempre aplican igual, sin importar cuál fuente
-     de fecha esté activa. */
-  function getTableFiltered(){
+  /* Rango de fechas que gobierna la tabla de "Detalle de personal": si hay
+     un corte (fGlobalIni/fGlobalFin) definido, ese rango manda sobre el
+     filtro Fecha de la barra principal. Si el corte está vacío, se usa el
+     filtro Fecha normal (por defecto, hoy; "ALL" = todo el período, sin
+     límites). Centralizado acá porque lo usan tanto getTableFiltered()
+     (filas que se muestran) como computeOvertimeForTableScope() (columna
+     "Horas extra" — ver más abajo), y las dos deben coincidir siempre. */
+  function getTableDateScope(){
     var corteIni = document.getElementById('fGlobalIni').value;
     var corteFin = document.getElementById('fGlobalFin').value;
-    var hasCorte = !!(corteIni || corteFin);
+    if (corteIni || corteFin){
+      return {ini: corteIni || null, fin: corteFin || null};
+    }
     var fecha = document.getElementById('fFecha').value;
+    if (fecha === 'ALL') return {ini: null, fin: null};
+    return {ini: fecha, fin: fecha};
+  }
+  /* Filtro completo de la tabla: rango de fechas (getTableDateScope) +
+     Ciudad/Turno/Buscar, que siempre aplican igual sin importar cuál
+     fuente de fecha esté activa. */
+  function getTableFiltered(){
+    var scope = getTableDateScope();
     var ciudad = document.getElementById('fCiudad').value;
     var turno = document.getElementById('fTurno').value;
     var search = normalize(document.getElementById('fSearch').value.trim());
     return baseRecords().filter(function(r){
-      if (hasCorte){
-        if (corteIni && r.fecha < corteIni) return false;
-        if (corteFin && r.fecha > corteFin) return false;
-      } else if (fecha !== 'ALL' && r.fecha !== fecha){
-        return false;
-      }
+      if (scope.ini && r.fecha < scope.ini) return false;
+      if (scope.fin && r.fecha > scope.fin) return false;
       if (ciudad !== 'ALL' && r.ciudad !== ciudad) return false;
       if (turno !== 'ALL' && r.turno !== turno) return false;
       if (search){
@@ -764,9 +771,11 @@
      ni del corte. Sí respeta "Tipo personal" (usa baseRecords()), igual que
      el resto del dashboard.
 
-     overtimeByCedula queda disponible para que renderTable() muestre la
-     misma cifra por persona en la columna "Horas extra semana" — se
-     recalcula junto con la tarjeta, antes de cada renderAll(). */
+     overtimeByCedula queda disponible por si se necesita en otro lado, pero
+     la columna "Horas extra" de la tabla de Detalle de personal YA NO usa
+     este mapa fijo — usa computeOvertimeForTableScope() (más abajo), que
+     sigue el rango de fechas que esté gobernando la tabla en ese momento
+     (corte o Fecha), a pedido explícito de la usuaria (2026-09-22). */
   var OVERTIME_WEEKLY_LIMIT = 12;
   var overtimeByCedula = {};
   function mondayOf(dateISO){
@@ -868,6 +877,41 @@
       '<h3 style="font-size:13px;margin:0 0 10px;">Horas extra por persona · semana '+weekLabel+'</h3>' +
       '<table class="data-table-mini"><thead><tr><th>Nombre</th><th>Cédula</th><th>Ciudad</th>' +
       '<th>Horas extra</th><th>Restantes</th><th>Estado</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  }
+
+  /* Columna "Horas extra" de la tabla de Detalle de personal: a diferencia
+     de la tarjeta de arriba (SIEMPRE la semana que contiene hoy), esta
+     columna sigue el mismo rango de fechas que esté gobernando la tabla en
+     ese momento — corte si hay uno definido, si no el filtro Fecha (hoy por
+     defecto, o todo el período si Fecha = "Todo el período") — a pedido
+     explícito de la usuaria. Usa getTableDateScope() para que nunca se
+     desincronice de getTableFiltered(). Igual que la tarjeta, ignora
+     Ciudad/Turno/Buscar (el acumulado de horas extra de una persona no
+     depende de qué tan angosto esté el filtro de Ciudad/Turno), pero sí
+     respeta "Tipo personal" vía baseRecords().
+
+     El tope de 12h sigue siendo el semanal de la Ley 2466/2025 — si el
+     rango activo de la tabla abarca más de una semana (ej. un corte largo
+     o "Todo el período"), "restantes" y el color ya no representan
+     literalmente el límite semanal, sino el acumulado contra esa misma
+     referencia de 12h. Documentado en el README; no se le puso una
+     advertencia aparte en la UI para no saturarla, pero vale la pena
+     tenerlo presente si se usa con cortes de varias semanas. */
+  function computeOvertimeForTableScope(){
+    var scope = getTableDateScope();
+    var map = {};
+    baseRecords().forEach(function(r){
+      if (scope.ini && r.fecha < scope.ini) return;
+      if (scope.fin && r.fecha > scope.fin) return;
+      if (!map[r.cedula]) map[r.cedula] = {cedula:r.cedula, horas:0};
+      map[r.cedula].horas += totalHoras(r);
+    });
+    Object.keys(map).forEach(function(k){
+      var x = map[k];
+      x.restantes = Math.max(0, OVERTIME_WEEKLY_LIMIT - x.horas);
+      x.estado = x.horas >= OVERTIME_WEEKLY_LIMIT ? 'excedido' : (x.horas >= 8 ? 'cerca' : 'ok');
+    });
+    return map;
   }
 
   /* Filtro de asistencia: aplica solo a la tabla de Detalle de personal.
@@ -1410,8 +1454,12 @@
       arrow.textContent = th.getAttribute('data-key') === sortState.key ? (sortState.dir===1?'▲':'▼') : '';
     });
 
+    /* Columna "Horas extra": sigue el mismo rango de fechas que gobierna la
+       tabla (corte o Fecha), no la semana fija de la tarjeta de arriba. */
+    var ovTableMap = computeOvertimeForTableScope();
+
     var rows = filtered.map(function(r){
-      var ov = overtimeByCedula[r.cedula];
+      var ov = ovTableMap[r.cedula];
       return {
         r: r,
         nombre: r.nombre, cedula: r.cedula, ciudad: r.ciudad, turno: r.turno, fecha: r.fecha,
@@ -1436,7 +1484,7 @@
     } else {
       tbody.innerHTML = rows.map(function(x){
         var meta = ASIST_META[x.asistencia] || {label:'Valor inesperado: '+x.asistencia, cls:'neutral'};
-        var ov = overtimeByCedula[x.cedula];
+        var ov = ovTableMap[x.cedula];
         var ovCell = '—';
         if (ov){
           var ovCls = ov.estado==='excedido' ? 'critical' : (ov.estado==='cerca' ? 'warning' : 'good');
