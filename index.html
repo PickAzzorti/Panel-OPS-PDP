@@ -326,7 +326,7 @@
         </div>
         <button class="btn ghost" id="btnCorteReset">Todo el período</button>
       </div>
-      <p class="corte-note">Afecta: Total $ en extras, Indicador de asistencia, Incidencias recurrentes, Distribución del gasto por tipo de recargo y la tabla de Detalle de personal (más abajo). El resto de indicadores y gráficas siguen mostrando todo el período.</p>
+      <p class="corte-note">Afecta: Total $ en extras, Indicador de asistencia, Incidencias recurrentes, Distribución del gasto por tipo de recargo y la tabla de Detalle de personal (más abajo). El resto de indicadores y gráficas siguen mostrando todo el período. Las fechas que elijas aquí se guardan en este navegador y siguen puestas la próxima vez que abras el dashboard.</p>
     </div>
     <div class="kpi-grid kpi-grid-2" id="kpiGlobalGrid"></div>
 
@@ -744,8 +744,42 @@
       return true;
     });
   }
+  /* ---------- Persistencia del filtro de corte (agregado 2026-09-30) ----
+     A pedido de la usuaria, las fechas inicial/final que elija en el corte
+     de "Indicadores generales" (fGlobalIni/fGlobalFin) se guardan en el
+     localStorage del navegador para que sigan ahí la próxima vez que abra
+     el dashboard (no se pierden al cerrar la pestaña o el archivo). Es
+     local a cada navegador/equipo — no viaja dentro del archivo HTML ni se
+     comparte entre dispositivos. Envuelto en try/catch porque localStorage
+     puede no estar disponible (ej. modo privado, o algunos navegadores al
+     abrir un archivo local con file://); si falla, el filtro simplemente
+     no persiste, sin romper el resto del dashboard. */
+  var CORTE_STORAGE_KEY = 'pdpDashboardCorte';
+  function saveCorteToStorage(){
+    try{
+      var ini = document.getElementById('fGlobalIni').value;
+      var fin = document.getElementById('fGlobalFin').value;
+      if (!ini && !fin){
+        localStorage.removeItem(CORTE_STORAGE_KEY);
+      } else {
+        localStorage.setItem(CORTE_STORAGE_KEY, JSON.stringify({ini: ini, fin: fin}));
+      }
+    } catch(e){ /* localStorage no disponible: se ignora */ }
+  }
+  function loadCorteFromStorage(){
+    try{
+      var raw = localStorage.getItem(CORTE_STORAGE_KEY);
+      if (!raw) return;
+      var saved = JSON.parse(raw);
+      if (saved && saved.ini) document.getElementById('fGlobalIni').value = saved.ini;
+      if (saved && saved.fin) document.getElementById('fGlobalFin').value = saved.fin;
+    } catch(e){ /* dato corrupto o localStorage no disponible: se ignora */ }
+  }
+  loadCorteFromStorage();
+
   ['fGlobalIni','fGlobalFin'].forEach(function(id){
     document.getElementById(id).addEventListener('change', function(){
+      saveCorteToStorage();
       renderGlobalKPIs();
       renderAll();
     });
@@ -753,6 +787,7 @@
   document.getElementById('btnCorteReset').addEventListener('click', function(){
     document.getElementById('fGlobalIni').value = '';
     document.getElementById('fGlobalFin').value = '';
+    saveCorteToStorage();
     renderGlobalKPIs();
     renderAll();
   });
