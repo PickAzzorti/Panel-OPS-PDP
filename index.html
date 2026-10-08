@@ -326,7 +326,7 @@
         </div>
         <button class="btn ghost" id="btnCorteReset">Todo el período</button>
       </div>
-      <p class="corte-note">Afecta: Total $ en extras, Indicador de asistencia, Incidencias recurrentes, Distribución del gasto por tipo de recargo y la tabla de Detalle de personal (más abajo). El resto de indicadores y gráficas siguen mostrando todo el período. Las fechas que elijas aquí se guardan en este navegador y siguen puestas la próxima vez que abras el dashboard.</p>
+      <p class="corte-note">Afecta: Total $ en extras, Indicador de asistencia, Incidencias recurrentes, Distribución del gasto por tipo de recargo, y la tabla de Detalle de personal (más abajo) cuando esa tabla tenga seleccionado "Filtro de corte" en su propio selector. El resto de indicadores y gráficas siguen mostrando todo el período. Las fechas que elijas aquí se guardan en este navegador y siguen puestas la próxima vez que abras el dashboard.</p>
     </div>
     <div class="kpi-grid kpi-grid-2" id="kpiGlobalGrid"></div>
 
@@ -406,6 +406,10 @@
   <div class="card table-card">
     <div class="table-head">
       <h3>Detalle de personal</h3>
+      <div class="seg-toggle" id="tableScopeToggle" role="group" aria-label="Rango de fechas de la tabla">
+        <button type="button" class="seg-btn active" data-scope="CORTE">Filtro de corte</button>
+        <button type="button" class="seg-btn" data-scope="FECHA">Día de Fecha</button>
+      </div>
       <div class="field table-filter">
         <label for="fAsistencia">Asistencia</label>
         <select id="fAsistencia"></select>
@@ -439,7 +443,7 @@
     P05 TD (trabajo dominical/festivo), P06 HEFD (hora extra festiva diurna), P07 HEFN (hora extra festiva nocturna).
     Asistencia: 1 = asistió, 0 = no programado, PE = permiso, IN = incapacidad, AU = ausencia injustificada.
     Valor hora ordinaria: $8.338. Factores de recargo: HED 1.25 &middot; HEN 1.90 &middot; RN 0.35 &middot; RND 2.25 &middot; TD 1.90 &middot; HEFD 2.15 &middot; HEFN 2.65.
-    Alerta de horas extra: tope legal de 12h extra por trabajador a la semana, sumando HED+HEN+TD+HEFD+HEFN (RN y RND no cuentan: son recargos por trabajar de noche dentro de la jornada ordinaria, no horas adicionales), según Ley 2466 de 2025, artículo 13. La tarjeta de arriba siempre usa la semana (lunes a domingo) que contiene la fecha de hoy; la columna "Horas extra (rango)" de Detalle de personal usa el mismo rango de fechas que esté activo en la tabla (corte o filtro Fecha).
+    Alerta de horas extra: tope legal de 12h extra por trabajador a la semana, sumando HED+HEN+TD+HEFD+HEFN (RN y RND no cuentan: son recargos por trabajar de noche dentro de la jornada ordinaria, no horas adicionales), según Ley 2466 de 2025, artículo 13. La tarjeta de arriba siempre usa la semana (lunes a domingo) que contiene la fecha de hoy; la columna "Horas extra (rango)" de Detalle de personal usa el mismo rango de fechas que esté activo en la tabla (según su selector "Filtro de corte" / "Día de Fecha").
     Este archivo funciona sin conexión a internet.
   </footer>
 
@@ -707,18 +711,28 @@
       return true;
     });
   }
-  /* Rango de fechas que gobierna la tabla de "Detalle de personal": si hay
-     un corte (fGlobalIni/fGlobalFin) definido, ese rango manda sobre el
-     filtro Fecha de la barra principal. Si el corte está vacío, se usa el
-     filtro Fecha normal (por defecto, hoy; "ALL" = todo el período, sin
-     límites). Centralizado acá porque lo usan tanto getTableFiltered()
-     (filas que se muestran) como computeOvertimeForTableScope() (columna
-     "Horas extra" — ver más abajo), y las dos deben coincidir siempre. */
+  /* Rango de fechas que gobierna la tabla de "Detalle de personal".
+     Desde 2026-10-08 esto es elegible con un selector en la cabecera de la
+     tabla (tableScopeMode, ver más abajo), a pedido explícito de la
+     usuaria:
+     - 'CORTE' (por defecto, comportamiento histórico sin cambios): si hay
+       un corte (fGlobalIni/fGlobalFin) definido, ese rango manda sobre el
+       filtro Fecha de la barra principal; si el corte está vacío, se usa
+       el filtro Fecha normal (por defecto, hoy; "ALL" = todo el período).
+     - 'FECHA': ignora el corte aunque esté definido, y siempre usa el
+       filtro Fecha de la barra principal (el día puntual seleccionado, o
+       todo el período si Fecha = "Todo el período").
+     Centralizado acá porque lo usan tanto getTableFiltered() (filas que se
+     muestran) como computeOvertimeForTableScope() (columna "Horas extra"
+     — ver más abajo), y las dos deben coincidir siempre. */
+  var tableScopeMode = 'CORTE';
   function getTableDateScope(){
-    var corteIni = document.getElementById('fGlobalIni').value;
-    var corteFin = document.getElementById('fGlobalFin').value;
-    if (corteIni || corteFin){
-      return {ini: corteIni || null, fin: corteFin || null};
+    if (tableScopeMode === 'CORTE'){
+      var corteIni = document.getElementById('fGlobalIni').value;
+      var corteFin = document.getElementById('fGlobalFin').value;
+      if (corteIni || corteFin){
+        return {ini: corteIni || null, fin: corteFin || null};
+      }
     }
     var fecha = document.getElementById('fFecha').value;
     if (fecha === 'ALL') return {ini: null, fin: null};
@@ -1485,12 +1499,33 @@
     });
   });
 
+  /* Selector de rango de fechas de la tabla (agregado 2026-10-08, a pedido
+     explícito de la usuaria): alterna tableScopeMode entre 'CORTE' (usa el
+     filtro de corte si está definido, igual que antes) y 'FECHA' (ignora
+     el corte y siempre usa el día del filtro Fecha de la barra principal).
+     No persiste entre recargas de página (vuelve a 'CORTE' al abrir el
+     dashboard), igual que el toggle Ausencias/Asistencia. */
+  var tableScopeToggle = document.getElementById('tableScopeToggle');
+  if (tableScopeToggle){
+    tableScopeToggle.querySelectorAll('.seg-btn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var mode = btn.getAttribute('data-scope');
+        if (mode === tableScopeMode) return;
+        tableScopeMode = mode;
+        tableScopeToggle.querySelectorAll('.seg-btn').forEach(function(b){
+          b.classList.toggle('active', b === btn);
+        });
+        renderAll();
+      });
+    });
+  }
+
   function renderTable(filtered){
     var scopePill = document.getElementById('tableScopePill');
     if (scopePill){
       var corteIni = document.getElementById('fGlobalIni').value;
       var corteFin = document.getElementById('fGlobalFin').value;
-      if (corteIni || corteFin){
+      if (tableScopeMode === 'CORTE' && (corteIni || corteFin)){
         scopePill.textContent = 'Corte: ' + corteLabel(corteIni, corteFin);
       } else {
         var fecha = document.getElementById('fFecha').value;
