@@ -839,7 +839,19 @@
   });
 
   function normalize(s){
-    return (s||'').toString().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+    /* minúsculas, sin tildes, y espacios dobles/especiales (\u00a0) colapsados */
+    return (s||'').toString().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'')
+      .replace(/[\s\u00a0]+/g,' ').trim();
+  }
+  /* Búsqueda: si el texto viene de elegir una sugerencia, se filtra por la
+     cédula de esa persona (el nombre está escrito distinto en algunas hojas
+     del Excel). Si se escribe a mano, se busca por nombre o cédula. */
+  function soloDigitos(v){ return String(v==null?'':v).replace(/\D/g,''); }
+  function coincideBusqueda(r, search){
+    var inp = document.getElementById('fSearch');
+    if (inp.dataset.ced && inp.value === inp.dataset.nom) return soloDigitos(r.cedula) === inp.dataset.ced;
+    var hay = normalize(r.nombre) + ' ' + normalize(r.cedula);
+    return hay.indexOf(search) !== -1;
   }
 
   function getFiltered(){
@@ -851,10 +863,7 @@
       if (fecha !== 'ALL' && r.fecha !== fecha) return false;
       if (ciudad !== 'ALL' && r.ciudad !== ciudad) return false;
       if (turno !== 'ALL' && r.turno !== turno) return false;
-      if (search){
-        var hay = normalize(r.nombre) + ' ' + normalize(r.cedula);
-        if (hay.indexOf(search) === -1) return false;
-      }
+      if (search && !coincideBusqueda(r, search)) return false;
       return true;
     });
   }
@@ -1420,8 +1429,7 @@
       if (ini && r.fecha < ini) return false;
       if (r.fecha > todayISO) return false;
       if (turno !== 'ALL' && r.turno !== turno) return false;
-      var hay = normalize(r.nombre) + ' ' + normalize(r.cedula);
-      return hay.indexOf(search) !== -1;
+      return coincideBusqueda(r, search);
     });
   }
   function renderAll(){
@@ -1433,6 +1441,19 @@
       var ini = document.getElementById('fGlobalIni').value;
       var rc = document.getElementById('rowCount');
       rc.textContent += ' · ' + corteLabel(ini, todayISO);
+      if (/^0 /.test(rc.textContent)){
+        var s = normalize(document.getElementById('fSearch').value);
+        var todos = baseRecords().filter(function(r){ return coincideBusqueda(r, s); });
+        var td = document.querySelector('#mainTbody .empty-row td');
+        if (td){
+          if (todos.length){
+            var ult = todos.map(function(r){ return r.fecha; }).sort().pop();
+            td.textContent = 'Esta persona no tiene registros entre el ' + fmtDateHuman(ini) + ' y hoy. Su último registro es del ' + (DATE_LABELS[ult] || ult) + '.';
+          } else {
+            td.textContent = 'No se encontró a nadie con ese nombre o cédula.';
+          }
+        }
+      }
     }
     renderCostChart();
   }
@@ -1468,12 +1489,15 @@
     function personas(){
       // Una sola sugerencia por cédula (si el nombre aparece escrito con y sin tilde/ñ,
       // se muestra la versión con tilde; el filtro ignora tildes, así que trae ambas)
+      /* Una sugerencia por cédula, con el nombre del registro más reciente
+         (espacios de más limpiados). */
       var byCed = {}, out = [];
       baseRecords().forEach(function(r){
         if (!r.nombre) return;
-        var key = String(r.cedula), cur = byCed[key];
-        if (!cur){ cur = byCed[key] = {cedula: r.cedula, nombre: r.nombre}; out.push(cur); }
-        else if (/[^\x00-\x7F]/.test(r.nombre) && !/[^\x00-\x7F]/.test(cur.nombre)) cur.nombre = r.nombre;
+        var key = soloDigitos(r.cedula), cur = byCed[key];
+        var limpio = String(r.nombre).replace(/[\s\u00a0]+/g,' ').trim();
+        if (!cur){ cur = byCed[key] = {cedula: key, nombre: limpio, fecha: r.fecha}; out.push(cur); }
+        else if (String(r.fecha) >= String(cur.fecha)){ cur.nombre = limpio; cur.fecha = r.fecha; }
       });
       return out;
     }
@@ -1507,6 +1531,8 @@
     function pick(i){
       var p = items[i]; if (!p) return;
       input.value = p.nombre;
+      input.dataset.nom = p.nombre;
+      input.dataset.ced = soloDigitos(p.cedula);
       close();
       input.dispatchEvent(new Event('input'));
       close();
