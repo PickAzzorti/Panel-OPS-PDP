@@ -1362,9 +1362,11 @@
 
   /* ---------- Main table ---------- */
   var sortState = {key:'nombre', dir:1};
+  var userSorted = false; /* true cuando la usuaria hace clic en un título de columna */
   document.querySelectorAll('table.main th[data-key]').forEach(function(th){
     th.addEventListener('click', function(){
       var key = th.getAttribute('data-key');
+      userSorted = true;
       if (sortState.key === key) sortState.dir *= -1;
       else { sortState.key = key; sortState.dir = 1; }
       renderAll();
@@ -1374,7 +1376,8 @@
   function renderTable(filtered){
     document.querySelectorAll('table.main th[data-key]').forEach(function(th){
       var arrow = th.querySelector('.arrow');
-      arrow.textContent = th.getAttribute('data-key') === sortState.key ? (sortState.dir===1?'▲':'▼') : '';
+      var effKey = (!userSorted && document.getElementById('fSearch').value.trim() !== '') ? 'fecha' : sortState.key; var effDir = effKey === sortState.key ? sortState.dir : 1;
+      arrow.textContent = th.getAttribute('data-key') === effKey ? (effDir===1?'▲':'▼') : '';
     });
 
     var rows = filtered.map(function(r){
@@ -1388,6 +1391,9 @@
       };
     });
     var key = sortState.key, dir = sortState.dir;
+    /* Al buscar una persona, por defecto se ordena por fecha (más antigua
+       primero), salvo que se haya elegido otro orden con clic en un título. */
+    if (!userSorted && document.getElementById('fSearch').value.trim() !== ''){ key = 'fecha'; dir = 1; }
     rows.sort(function(a,b){
       var va = a[key], vb = b[key];
       if (['hed','hen','rn','rnd','td','hefd','hefn','costo'].indexOf(key) !== -1){ if (va!==vb) return (va-vb)*dir; va=''; vb=''; }
