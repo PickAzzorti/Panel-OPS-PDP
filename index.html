@@ -1436,6 +1436,20 @@
     var filtered = getFiltered();
     renderKPIs(filtered);
     var buscando = document.getElementById('fSearch').value.trim() !== '';
+    /* El Detalle de personal queda oculto hasta que se use algún filtro
+       (2026-10-14, a pedido de la usuaria). Cuentan: Buscar, Turno, Género,
+       Tipo de contrato, Asistencia, o una Fecha distinta a la de hoy. */
+    var v = function(id){ var el = document.getElementById(id); return el ? el.value : 'ALL'; };
+    var hayFiltro = buscando || v('fTurno') !== 'ALL' || v('fGenero') !== 'ALL' ||
+      v('fContrato') !== 'ALL' || v('fAsistencia') !== 'ALL' || v('fFecha') !== defaultFecha;
+    if (!hayFiltro){
+      renderTable([]);
+      var td0 = document.querySelector('#mainTbody .empty-row td');
+      if (td0) td0.textContent = 'Usa un filtro (Fecha, Turno, Género, Tipo de contrato, Asistencia o Buscar) para ver el detalle.';
+      document.getElementById('rowCount').textContent = 'Sin filtro';
+      renderCostChart();
+      return;
+    }
     renderTable(applyAsistenciaFilter(buscando ? getPersonaRango() : filtered));
     if (buscando){
       var ini = document.getElementById('fGlobalIni').value;
