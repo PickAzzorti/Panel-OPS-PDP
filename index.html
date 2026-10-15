@@ -907,7 +907,7 @@
   }
   document.getElementById('fGlobalIni').addEventListener('change', saveCorteIni);
   ['fGlobalIni','fGlobalFin'].forEach(function(id){
-    document.getElementById(id).addEventListener('change', renderGlobalKPIs);
+    document.getElementById(id).addEventListener('change', function(){ renderGlobalKPIs(); renderAll(); });
   });
   document.getElementById('btnCorteReset').addEventListener('click', function(){
     document.getElementById('fGlobalIni').value = periodoStart;
@@ -1408,10 +1408,32 @@
   }
 
   /* ---------- Master render ---------- */
+  /* Al buscar una persona, el Detalle de personal muestra todos sus días
+     desde la Fecha inicial del corte hasta hoy, sin importar el día elegido
+     en el filtro Fecha (2026-10-14, a pedido de la usuaria). Los KPIs de
+     arriba siguen respetando el filtro Fecha. */
+  function getPersonaRango(){
+    var ini = document.getElementById('fGlobalIni').value;
+    var turno = document.getElementById('fTurno').value;
+    var search = normalize(document.getElementById('fSearch').value.trim());
+    return baseRecords().filter(function(r){
+      if (ini && r.fecha < ini) return false;
+      if (r.fecha > todayISO) return false;
+      if (turno !== 'ALL' && r.turno !== turno) return false;
+      var hay = normalize(r.nombre) + ' ' + normalize(r.cedula);
+      return hay.indexOf(search) !== -1;
+    });
+  }
   function renderAll(){
     var filtered = getFiltered();
     renderKPIs(filtered);
-    renderTable(applyAsistenciaFilter(filtered));
+    var buscando = document.getElementById('fSearch').value.trim() !== '';
+    renderTable(applyAsistenciaFilter(buscando ? getPersonaRango() : filtered));
+    if (buscando){
+      var ini = document.getElementById('fGlobalIni').value;
+      var rc = document.getElementById('rowCount');
+      rc.textContent += ' · ' + corteLabel(ini, todayISO);
+    }
     renderCostChart();
   }
 
