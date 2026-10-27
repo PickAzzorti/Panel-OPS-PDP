@@ -367,6 +367,35 @@
   #mainTable tbody tr.row-domingo td:first-child{box-shadow:inset 3px 0 0 var(--critical);}
   #mainTable tbody tr.row-domingo:hover td{background:rgba(248,113,113,.24);}
 
+  /* ---- Filtro Fecha: calendario mensual ---- */
+  .cal-wrap{position:relative;}
+  .cal-btn{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:200px;
+    font-family:inherit;font-size:14px;font-weight:600;padding:9px 12px;border-radius:10px;cursor:pointer;
+    background:var(--surface-2);border:1px solid var(--border-strong);color:var(--text-primary);}
+  .cal-btn:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(142,147,224,.22);}
+  .cal-ico{color:var(--text-muted);font-size:13px;}
+  .cal-pop{position:absolute;top:100%;left:0;margin-top:4px;z-index:70;width:252px;
+    background:var(--surface-2);border:1px solid var(--border-strong);border-radius:10px;
+    box-shadow:0 10px 28px rgba(0,0,0,.45);overflow:hidden;}
+  .cal-head{display:flex;align-items:center;justify-content:space-between;background:var(--accent);color:#161a33;padding:6px 8px;}
+  .cal-head b{font-size:13px;font-weight:800;}
+  .cal-nav{background:transparent;border:none;color:#161a33;font-size:16px;font-weight:800;cursor:pointer;width:26px;height:24px;border-radius:6px;}
+  .cal-nav:hover{background:rgba(255,255,255,.25);}
+  .cal-nav:disabled{opacity:.3;cursor:default;}
+  .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;padding:6px 8px 4px;}
+  .cal-dow{font-size:10.5px;font-weight:700;color:var(--text-muted);text-align:center;padding:2px 0 4px;}
+  .cal-day{font-family:inherit;font-size:12px;height:28px;border:none;border-radius:6px;background:transparent;color:var(--text-muted);cursor:default;opacity:.45;}
+  .cal-day.has{opacity:1;color:var(--text-primary);cursor:pointer;background:rgba(142,147,224,.10);}
+  .cal-day.has:hover{background:rgba(142,147,224,.28);}
+  .cal-day.dom.has{color:#fca5a5;}
+  .cal-day.today{box-shadow:inset 0 0 0 1px var(--accent);}
+  .cal-day.sel{background:var(--accent)!important;color:#161a33!important;font-weight:800;}
+  .cal-foot{display:flex;justify-content:space-between;gap:6px;padding:6px 8px 8px;border-top:1px solid var(--border);}
+  .cal-foot button{flex:1;font-family:inherit;font-size:12px;font-weight:600;padding:6px 8px;border-radius:8px;cursor:pointer;
+    background:transparent;border:1px solid var(--border-strong);color:var(--text-primary);}
+  .cal-foot button:hover{background:var(--neutral-bg);}
+  .cal-foot button.on{background:var(--accent);border-color:var(--accent);color:#161a33;}
+
   /* ---- Sugerencias del buscador ---- */
   .field.search{position:relative;}
   .sugg-list{position:absolute;top:100%;left:0;min-width:max(100%,360px);margin-top:4px;z-index:60;
@@ -389,8 +418,12 @@
 
   <div class="card filters">
     <div class="field">
-      <label for="fFecha">Fecha</label>
-      <select id="fFecha"></select>
+      <label for="fFechaBtn">Fecha</label>
+      <select id="fFecha" style="display:none;"></select>
+      <div class="cal-wrap">
+        <button type="button" class="cal-btn" id="fFechaBtn" aria-haspopup="dialog" aria-expanded="false"><span id="fFechaTxt">—</span><span class="cal-ico" aria-hidden="true">▦</span></button>
+        <div class="cal-pop" id="fFechaCal" role="dialog" aria-label="Elegir fecha" hidden></div>
+      </div>
     </div>
     <div class="field">
       <label for="fGenero">Género</label>
@@ -1579,6 +1612,84 @@
       e.preventDefault(); pick(+el.getAttribute('data-i'));
     });
     input.addEventListener('blur', function(){ setTimeout(close, 120); });
+  })();
+
+
+  /* ---------- Filtro Fecha como calendario mensual (2026-10-27) ----------
+     El <select id="fFecha"> sigue existiendo (oculto) y guarda el valor;
+     el calendario solo lo cambia y dispara 'change', así que el resto del
+     dashboard funciona igual. */
+  (function(){
+    var sel = document.getElementById('fFecha');
+    var btn = document.getElementById('fFechaBtn');
+    var txt = document.getElementById('fFechaTxt');
+    var pop = document.getElementById('fFechaCal');
+    if (!sel || !btn || !pop) return;
+    var MESES_L = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    var DOW = ['Do','Lu','Ma','Mi','Ju','Vi','Sa'];
+    var disponibles = {};
+    Array.prototype.forEach.call(sel.options, function(o){ if (o.value !== 'ALL') disponibles[o.value] = true; });
+    var fechas = Object.keys(disponibles).sort();
+    var minYM = fechas.length ? fechas[0].slice(0,7) : todayISO.slice(0,7);
+    var maxYM = fechas.length ? fechas[fechas.length-1].slice(0,7) : todayISO.slice(0,7);
+    var verY, verM;
+    function iso(y,m,d){ return y + '-' + String(m+1).padStart(2,'0') + '-' + String(d).padStart(2,'0'); }
+    function ym(y,m){ return y + '-' + String(m+1).padStart(2,'0'); }
+    function label(){
+      var v = sel.value;
+      txt.textContent = v === 'ALL' ? 'Todo el período' : ((DATE_LABELS[v] || v) + (v === todayISO ? ' (hoy)' : ''));
+    }
+    function setVista(v){
+      var base = (v && v !== 'ALL') ? v : todayISO;
+      verY = +base.slice(0,4); verM = +base.slice(5,7) - 1;
+    }
+    function pintar(){
+      var first = new Date(verY, verM, 1).getDay();
+      var dias = new Date(verY, verM + 1, 0).getDate();
+      var cur = ym(verY, verM);
+      var html = '<div class="cal-head"><button type="button" class="cal-nav" data-nav="-1"' + (cur <= minYM ? ' disabled' : '') + ' aria-label="Mes anterior">‹</button>' +
+        '<b>' + MESES_L[verM] + ' ' + verY + '</b>' +
+        '<button type="button" class="cal-nav" data-nav="1"' + (cur >= maxYM ? ' disabled' : '') + ' aria-label="Mes siguiente">›</button></div>' +
+        '<div class="cal-grid">' + DOW.map(function(d){ return '<div class="cal-dow">' + d + '</div>'; }).join('');
+      for (var i = 0; i < first; i++) html += '<span></span>';
+      for (var d = 1; d <= dias; d++){
+        var f = iso(verY, verM, d), cls = 'cal-day';
+        if (disponibles[f]) cls += ' has';
+        if (new Date(verY, verM, d).getDay() === 0) cls += ' dom';
+        if (f === todayISO) cls += ' today';
+        if (f === sel.value) cls += ' sel';
+        html += '<button type="button" class="' + cls + '" data-f="' + f + '"' + (disponibles[f] ? '' : ' disabled') + '>' + d + '</button>';
+      }
+      html += '</div><div class="cal-foot"><button type="button" data-f="ALL" class="' + (sel.value === 'ALL' ? 'on' : '') + '">Todo el período</button>' +
+        '<button type="button" data-f="' + todayISO + '">Hoy</button></div>';
+      pop.innerHTML = html;
+    }
+    function abrir(){ setVista(sel.value); pintar(); pop.hidden = false; btn.setAttribute('aria-expanded','true'); }
+    function cerrar(){ pop.hidden = true; btn.setAttribute('aria-expanded','false'); }
+    function elegir(v){
+      if (v !== 'ALL' && !disponibles[v]) return;
+      sel.value = v; label(); cerrar();
+      sel.dispatchEvent(new Event('change'));
+    }
+    btn.addEventListener('click', function(e){ e.stopPropagation(); pop.hidden ? abrir() : cerrar(); });
+    pop.addEventListener('click', function(e){
+      e.stopPropagation();
+      var nav = e.target.closest('[data-nav]');
+      if (nav && !nav.disabled){
+        verM += +nav.getAttribute('data-nav');
+        if (verM < 0){ verM = 11; verY--; } if (verM > 11){ verM = 0; verY++; }
+        pintar(); return;
+      }
+      var b = e.target.closest('[data-f]');
+      if (b && !b.disabled) elegir(b.getAttribute('data-f'));
+    });
+    document.addEventListener('click', function(){ if (!pop.hidden) cerrar(); });
+    document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && !pop.hidden) cerrar(); });
+    /* Mantener el texto del botón al día cuando otro control cambia la
+       fecha (botón Hoy, Limpiar filtros, etc.). */
+    var _renderAll = renderAll;
+    renderAll = function(){ var r = _renderAll.apply(this, arguments); label(); return r; };
+    label();
   })();
 
 })();
