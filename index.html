@@ -286,6 +286,13 @@
   .aus-summary .chip{font-size:11.5px;}
   #ausChart .aus-hit{fill:transparent;cursor:crosshair;}
   #ausChart .aus-dot{transition:r .08s;}
+  /* ---- Selector Recurrentes / Sin incidencias ---- */
+  .inc-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 14px;margin:0 0 10px;}
+  .seg-toggle{display:inline-flex;border:1px solid var(--border-strong);border-radius:10px;overflow:hidden;}
+  .seg-btn{font-family:inherit;font-size:12.5px;font-weight:600;padding:7px 12px;border:none;background:transparent;color:var(--text-secondary);cursor:pointer;}
+  .seg-btn + .seg-btn{border-left:1px solid var(--border-strong);}
+  .seg-btn:hover{background:var(--neutral-bg);}
+  .seg-btn.on{background:var(--accent);color:#161a33;}
   .aus-filters{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin:0 0 12px;}
   .aus-filters .field{min-width:150px;}
   .aus-tip-row{display:flex;justify-content:space-between;gap:14px;}
@@ -521,7 +528,13 @@
   </div>
 
   <div class="card" id="incidenciasDetailCard" style="display:none;padding:16px;margin-bottom:18px;">
-    <h3 style="font-size:13px;margin:0 0 10px;">Empleados con incidencias recurrentes (top 10 del per&iacute;odo)</h3>
+    <div class="inc-head">
+      <h3 id="incidenciasDetailTitle" style="font-size:13px;margin:0;">Empleados con incidencias recurrentes (top 10 del per&iacute;odo)</h3>
+      <div class="seg-toggle" id="incDetailToggle" role="group" aria-label="Qué empleados ver">
+        <button type="button" class="seg-btn on" data-mode="REC">Incidencias recurrentes</button>
+        <button type="button" class="seg-btn" data-mode="SIN">Sin incidencias</button>
+      </div>
+    </div>
     <div id="incidenciasDetail"></div>
   </div>
 
@@ -1108,6 +1121,82 @@
     return list;
   }
 
+  /* Empleados SIN ninguna incidencia (AU, PE, IN) en la lista dada.
+     "0" (no programado), VAC y sin registrar no cuentan como incidencia.
+     Solo incluye a quienes asistieron al menos a un turno. */
+  var SIN_INC_KEYS = ['PE','IN','AU'];
+  function computeSinIncidencias(list){
+    var map = {};
+    list.forEach(function(r){
+      var ced = String(r.cedula);
+      if (!map[ced]) map[ced] = {cedula:r.cedula, nombre:r.nombre, ciudad:r.ciudad, asistidos:0, vac:0, inc:0};
+      var k = asistKey(r.asistencia);
+      if (k === '1') map[ced].asistidos++;
+      else if (k === 'VAC') map[ced].vac++;
+      else if (SIN_INC_KEYS.indexOf(k) !== -1) map[ced].inc++;
+    });
+    return Object.keys(map).map(function(k){ return map[k]; })
+      .filter(function(x){ return x.inc === 0 && x.asistidos > 0; })
+      .sort(function(a,b){ return (b.asistidos - a.asistidos) || String(a.nombre).localeCompare(String(b.nombre), 'es'); });
+  }
+  var incDetailMode = 'REC';
+  var _incDetailData = {rec:[], sin:[], hasCorte:false};
+  function renderIncDetail(){
+    var detailEl = document.getElementById('incidenciasDetail');
+    var titleEl = document.getElementById('incidenciasDetailTitle');
+    var d = _incDetailData;
+    var scope = d.hasCorte ? 'del corte' : 'del per&iacute;odo';
+    document.querySelectorAll('#incDetailToggle .seg-btn').forEach(function(b){
+      var m = b.getAttribute('data-mode');
+      b.classList.toggle('on', m === incDetailMode);
+      b.textContent = (m === 'REC' ? 'Incidencias recurrentes' : 'Sin incidencias') + ' (' + (m === 'REC' ? d.rec.length : d.sin.length) + ')';
+    });
+    if (incDetailMode === 'SIN'){
+      if (titleEl) titleEl.innerHTML = 'Empleados sin ninguna incidencia ' + scope;
+      if (!d.sin.length){
+        detailEl.innerHTML = '<p class="sub" style="margin:0;">Todos los empleados tienen al menos una incidencia ' + scope + '.</p>';
+        return;
+      }
+      var rowsSin = d.sin.map(function(x){
+        var nota = x.vac ? '<span class="badge neutral">'+x.vac+' vacaciones</span>' : '<span class="badge good">Asistencia perfecta</span>';
+        return '<tr><td>'+x.nombre+'</td><td>'+x.cedula+'</td><td>'+(x.ciudad||'')+'</td><td class="num">'+x.asistidos+'</td><td>'+nota+'</td></tr>';
+      }).join('');
+      detailEl.innerHTML =
+        '<p class="sub" style="margin:0 0 8px;">'+d.sin.length+' empleados sin ausencias injustificadas, permisos ni incapacidades. El 0 (no programado) y las vacaciones no cuentan como incidencia.</p>' +
+        '<div class="table-scroll" style="max-height:420px;overflow:auto;"><table class="main" style="min-width:0;"><thead><tr>' +
+        '<th>Nombre</th><th>C&eacute;dula</th><th>Ciudad</th><th class="num">Turnos asistidos</th><th>Nota</th>' +
+        '</tr></thead><tbody>'+rowsSin+'</tbody></table></div>';
+      return;
+    }
+    if (titleEl) titleEl.innerHTML = 'Empleados con incidencias recurrentes (top 10 ' + scope + ')';
+    var recurrentes = d.rec;
+    if (!recurrentes.length){
+      detailEl.innerHTML = '<p class="sub" style="margin:0;">Ningún empleado tiene 2 o más incidencias en el período.</p>';
+      return;
+    }
+    var noteTop = recurrentes.length > 10
+      ? '<p class="sub" style="margin:0 0 8px;">Mostrando el top 10 de '+recurrentes.length+' empleados con 2 o más incidencias.</p>'
+      : '';
+    var rows = recurrentes.slice(0, 10).map(function(x){
+      var chips = '';
+      if (x.b['0']) chips += '<span class="badge critical">'+x.b['0']+' no vino</span> ';
+      if (x.b['AU']) chips += '<span class="badge critical">'+x.b['AU']+' ausencia</span> ';
+      if (x.b['PE']) chips += '<span class="badge warning">'+x.b['PE']+' permiso</span> ';
+      if (x.b['IN']) chips += '<span class="badge serious">'+x.b['IN']+' incapacidad</span> ';
+      return '<tr><td>'+x.nombre+'</td><td>'+x.cedula+'</td><td>'+x.ciudad+'</td><td class="num">'+x.count+'</td><td>'+chips+'</td></tr>';
+    }).join('');
+    detailEl.innerHTML = noteTop +
+      '<div class="table-scroll"><table class="main" style="min-width:0;"><thead><tr>' +
+      '<th>Nombre</th><th>C&eacute;dula</th><th>Ciudad</th><th class="num">Incidencias</th><th>Detalle</th>' +
+      '</tr></thead><tbody>'+rows+'</tbody></table></div>';
+  }
+  document.querySelectorAll('#incDetailToggle .seg-btn').forEach(function(b){
+    b.addEventListener('click', function(){
+      incDetailMode = b.getAttribute('data-mode');
+      renderIncDetail();
+    });
+  });
+
   /* ---------- KPIs globales ----------
      Estas tarjetas (Total $ en extras, Indicador de asistencia, Incidencias
      recurrentes) y la Distribución del gasto responden al filtro de "corte"
@@ -1187,27 +1276,8 @@
         detailBtn.textContent = showing ? 'Ver detalle →' : 'Ocultar detalle';
       });
     }
-    var detailEl = document.getElementById('incidenciasDetail');
-    var top10 = recurrentes.slice(0, 10);
-    if (!recurrentes.length){
-      detailEl.innerHTML = '<p class="sub" style="margin:0;">Ningún empleado tiene 2 o más incidencias en el período.</p>';
-    } else {
-      var noteTop = recurrentes.length > 10
-        ? '<p class="sub" style="margin:0 0 8px;">Mostrando el top 10 de '+recurrentes.length+' empleados con 2 o más incidencias.</p>'
-        : '';
-      var rows = top10.map(function(x){
-        var chips = '';
-        if (x.b['0']) chips += '<span class="badge critical">'+x.b['0']+' no vino</span> ';
-        if (x.b['AU']) chips += '<span class="badge critical">'+x.b['AU']+' ausencia</span> ';
-        if (x.b['PE']) chips += '<span class="badge warning">'+x.b['PE']+' permiso</span> ';
-        if (x.b['IN']) chips += '<span class="badge serious">'+x.b['IN']+' incapacidad</span> ';
-        return '<tr><td>'+x.nombre+'</td><td>'+x.cedula+'</td><td>'+x.ciudad+'</td><td class="num">'+x.count+'</td><td>'+chips+'</td></tr>';
-      }).join('');
-      detailEl.innerHTML = noteTop +
-        '<div class="table-scroll"><table class="main" style="min-width:0;"><thead><tr>' +
-        '<th>Nombre</th><th>C&eacute;dula</th><th>Ciudad</th><th class="num">Incidencias</th><th>Detalle</th>' +
-        '</tr></thead><tbody>'+rows+'</tbody></table></div>';
-    }
+    _incDetailData = {rec: recurrentes, sin: computeSinIncidencias(corteRecords), hasCorte: hasCorte};
+    renderIncDetail();
 
     document.getElementById('distChartTitle').textContent =
       'Distribución del gasto por tipo de recargo · ' + (hasCorte ? 'corte: '+corteLabel(corteIni, corteFin) : 'todo el período');
