@@ -286,6 +286,8 @@
   .aus-summary .chip{font-size:11.5px;}
   #ausChart .aus-hit{fill:transparent;cursor:crosshair;}
   #ausChart .aus-dot{transition:r .08s;}
+  .aus-filters{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin:0 0 12px;}
+  .aus-filters .field{min-width:150px;}
   .aus-tip-row{display:flex;justify-content:space-between;gap:14px;}
   footer{margin-top:20px;color:var(--text-muted);font-size:11.5px;line-height:1.7;padding:0 4px 10px;}
   footer a{color:var(--series-1);}
@@ -527,6 +529,17 @@
     <div class="chart-head">
       <h3 id="ausChartTitle">Ausencias por d&iacute;a &middot; todo el per&iacute;odo</h3>
       <button class="toggle-table" data-target="ausTable">Ver tabla</button>
+    </div>
+    <div class="aus-filters">
+      <div class="field">
+        <label for="ausIni">Fecha inicial</label>
+        <input type="date" id="ausIni">
+      </div>
+      <div class="field">
+        <label for="ausFin">Fecha final</label>
+        <input type="date" id="ausFin">
+      </div>
+      <button class="btn ghost" id="ausReset">Todo el per&iacute;odo</button>
     </div>
     <div class="aus-summary" id="ausSummary"></div>
     <div class="chart-scroll" id="ausChart"></div>
@@ -1239,7 +1252,19 @@
     var el = document.getElementById('ausChart');
     if (!el) return;
     var base = baseRecords();
-    var fechas = uniqueDates.filter(function(d){ return d <= todayISO; });
+    /* Rango propio del gráfico (solo afecta esta tarjeta) */
+    var ausIni = document.getElementById('ausIni').value;
+    var ausFin = document.getElementById('ausFin').value;
+    if (ausIni && ausFin && ausIni > ausFin){ var _t = ausIni; ausIni = ausFin; ausFin = _t; }
+    var fechas = uniqueDates.filter(function(d){
+      return d <= todayISO && (!ausIni || d >= ausIni) && (!ausFin || d <= ausFin);
+    });
+    var titleEl = document.getElementById('ausChartTitle');
+    if (titleEl){
+      titleEl.innerHTML = 'Ausencias por d&iacute;a &middot; ' + (fechas.length
+        ? (fmtDateHuman(fechas[0]) + ' &ndash; ' + fmtDateHuman(fechas[fechas.length-1]))
+        : 'sin datos en el rango');
+    }
     var idx = {};
     var byDate = fechas.map(function(d, i){
       idx[d] = i;
@@ -1266,7 +1291,11 @@
     AUS_TIPOS.forEach(function(t){ if (tot[t.k]) sum += '<span class="chip '+t.cls+'">'+t.k+' '+tot[t.k]+'</span>'; });
     document.getElementById('ausSummary').innerHTML = sum;
 
-    if (!byDate.length){ el.innerHTML = '<p class="sub" style="margin:0;">Sin datos.</p>'; return; }
+    if (!byDate.length){
+      el.innerHTML = '<p class="sub" style="margin:0;color:var(--text-muted);">No hay datos entre esas fechas.</p>';
+      document.getElementById('ausTable').innerHTML = '';
+      return;
+    }
 
     /* Geometría */
     var n = byDate.length;
@@ -1344,6 +1373,18 @@
     tbl += '<td>'+grand+'</td></tr></tbody></table>';
     document.getElementById('ausTable').innerHTML = tbl;
   }
+  (function(){
+    var ini = document.getElementById('ausIni'), fin = document.getElementById('ausFin');
+    if (!ini || !fin) return;
+    var hasta = uniqueDates.filter(function(d){ return d <= todayISO; });
+    var minD = uniqueDates[0] || '', maxD = hasta[hasta.length-1] || minD;
+    [ini, fin].forEach(function(inp){ inp.min = minD; inp.max = maxD; });
+    function porDefecto(){ ini.value = minD; fin.value = maxD; }
+    porDefecto();
+    ini.addEventListener('change', renderAusChart);
+    fin.addEventListener('change', renderAusChart);
+    document.getElementById('ausReset').addEventListener('click', function(){ porDefecto(); renderAusChart(); });
+  })();
   var _ausResizeT = null;
   window.addEventListener('resize', function(){
     clearTimeout(_ausResizeT);
