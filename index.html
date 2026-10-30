@@ -239,7 +239,7 @@
     position:fixed;pointer-events:none;
     background:var(--text-primary);color:var(--surface-1);
     font-size:11px;padding:6px 9px;border-radius:6px;
-    transform:translate(-50%,-115%);white-space:nowrap;z-index:50;
+    transform:translate(-50%,-115%);white-space:nowrap;z-index:50;line-height:1.5;
     opacity:0;transition:opacity 0.1s;
   }
   .bar-tooltip.show{opacity:1;}
@@ -279,6 +279,14 @@
   }
   .empty-row td{text-align:center;color:var(--text-muted);padding:30px;}
 
+  /* ---- Ausencias por día (línea) ---- */
+  .aus-card{margin-bottom:18px;}
+  .aus-card .chart-head{flex-wrap:wrap;gap:6px 14px;}
+  .aus-summary{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px;}
+  .aus-summary .chip{font-size:11.5px;}
+  #ausChart .aus-hit{fill:transparent;cursor:crosshair;}
+  #ausChart .aus-dot{transition:r .08s;}
+  .aus-tip-row{display:flex;justify-content:space-between;gap:14px;}
   footer{margin-top:20px;color:var(--text-muted);font-size:11.5px;line-height:1.7;padding:0 4px 10px;}
   footer a{color:var(--series-1);}
 </style>
@@ -513,6 +521,16 @@
   <div class="card" id="incidenciasDetailCard" style="display:none;padding:16px;margin-bottom:18px;">
     <h3 style="font-size:13px;margin:0 0 10px;">Empleados con incidencias recurrentes (top 10 del per&iacute;odo)</h3>
     <div id="incidenciasDetail"></div>
+  </div>
+
+  <div class="card chart-card aus-card" id="ausChartCard">
+    <div class="chart-head">
+      <h3 id="ausChartTitle">Ausencias por d&iacute;a &middot; todo el per&iacute;odo</h3>
+      <button class="toggle-table" data-target="ausTable">Ver tabla</button>
+    </div>
+    <div class="aus-summary" id="ausSummary"></div>
+    <div class="chart-scroll" id="ausChart"></div>
+    <div id="ausTable" style="display:none;margin-top:12px;max-height:320px;overflow:auto;"></div>
   </div>
 
   <div class="card corte-box">
@@ -1207,7 +1225,133 @@
     });
   }
 
+  /* ---------- Ausencias por día (gráfico de línea) ----------
+     Suma AU + PE + IN + VAC por fecha. "0" (no programado) y vacío
+     (sin registrar) no cuentan. Respeta Tipo personal / Género / Contrato
+     (baseRecords) y muestra todo el período hasta hoy. */
+  var AUS_TIPOS = [
+    {k:'AU',  label:'Ausencia injustificada', cls:'critical'},
+    {k:'PE',  label:'Permiso',                cls:'warning'},
+    {k:'IN',  label:'Incapacidad',            cls:'serious'},
+    {k:'VAC', label:'Vacaciones',             cls:'neutral'}
+  ];
+  function renderAusChart(){
+    var el = document.getElementById('ausChart');
+    if (!el) return;
+    var base = baseRecords();
+    var fechas = uniqueDates.filter(function(d){ return d <= todayISO; });
+    var idx = {};
+    var byDate = fechas.map(function(d, i){
+      idx[d] = i;
+      return {date:d, total:0, c:{AU:0, PE:0, IN:0, VAC:0}};
+    });
+    base.forEach(function(r){
+      var i = idx[r.fecha];
+      if (i === undefined) return;
+      var k = asistKey(r.asistencia);
+      if (byDate[i].c.hasOwnProperty(k)){ byDate[i].c[k]++; byDate[i].total++; }
+    });
+
+    /* Resumen */
+    var tot = {AU:0, PE:0, IN:0, VAC:0}, grand = 0, pico = null;
+    byDate.forEach(function(b){
+      AUS_TIPOS.forEach(function(t){ tot[t.k] += b.c[t.k]; });
+      grand += b.total;
+      if (!pico || b.total > pico.total) pico = b;
+    });
+    var prom = byDate.length ? grand / byDate.length : 0;
+    var sum = '<span class="chip neutral">Total: <b>'+grand+'</b></span>' +
+              '<span class="chip neutral">Promedio diario: <b>'+prom.toFixed(1).replace('.', ',')+'</b></span>';
+    if (pico && pico.total > 0) sum += '<span class="chip critical">Pico: '+pico.total+' &middot; '+DATE_LABELS[pico.date]+'</span>';
+    AUS_TIPOS.forEach(function(t){ if (tot[t.k]) sum += '<span class="chip '+t.cls+'">'+t.k+' '+tot[t.k]+'</span>'; });
+    document.getElementById('ausSummary').innerHTML = sum;
+
+    if (!byDate.length){ el.innerHTML = '<p class="sub" style="margin:0;">Sin datos.</p>'; return; }
+
+    /* Geometría */
+    var n = byDate.length;
+    var H = 240, padL = 34, padR = 14, padT = 14, padB = 34;
+    var avail = Math.max(320, (el.clientWidth || 900));
+    var step = Math.max(12, (avail - padL - padR) / Math.max(1, n - 1));
+    var W = Math.round(padL + padR + step * (n - 1));
+    var plotH = H - padT - padB;
+    var maxV = Math.max.apply(null, byDate.map(function(b){ return b.total; }).concat([1]));
+    var tick = maxV <= 5 ? 1 : maxV <= 10 ? 2 : maxV <= 25 ? 5 : 10;
+    var yMax = Math.ceil(maxV / tick) * tick;
+    function X(i){ return padL + i * step; }
+    function Y(v){ return padT + plotH - (v / yMax) * plotH; }
+
+    var svg = '<svg viewBox="0 0 '+W+' '+H+'" width="'+W+'" height="'+H+'" style="display:block;font-family:inherit;">';
+    for (var v = 0; v <= yMax; v += tick){
+      var gy = Y(v);
+      svg += '<line x1="'+padL+'" x2="'+(W-padR)+'" y1="'+gy+'" y2="'+gy+'" stroke="'+(v===0?'var(--baseline)':'var(--grid)')+'" stroke-width="1"/>';
+      svg += '<text x="'+(padL-8)+'" y="'+(gy+4)+'" text-anchor="end" font-size="10.5" fill="var(--text-muted)">'+v+'</text>';
+    }
+    /* Etiquetas del eje X: día; mes cuando cambia. Se espacian si hay muchas fechas. */
+    var every = Math.max(1, Math.ceil(26 / step));
+    var lastMon = null;
+    byDate.forEach(function(b, i){
+      var p = b.date.split('-'), mon = p[1];
+      var newMon = mon !== lastMon; lastMon = mon;
+      if (i % every !== 0 && !newMon) return;
+      var x = X(i);
+      svg += '<text x="'+x+'" y="'+(H-padB+15)+'" text-anchor="middle" font-size="10.5" fill="var(--text-secondary)">'+Number(p[2])+'</text>';
+      if (newMon) svg += '<text x="'+x+'" y="'+(H-padB+28)+'" text-anchor="middle" font-size="10" font-weight="700" fill="var(--text-muted)">'+MESES[Number(mon)-1]+'</text>';
+    });
+    /* Área suave + línea */
+    var pts = byDate.map(function(b, i){ return X(i).toFixed(1)+','+Y(b.total).toFixed(1); });
+    svg += '<polygon points="'+X(0)+','+Y(0)+' '+pts.join(' ')+' '+X(n-1)+','+Y(0)+'" fill="var(--critical)" opacity="0.10"/>';
+    svg += '<polyline points="'+pts.join(' ')+'" fill="none" stroke="var(--critical)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>';
+    byDate.forEach(function(b, i){
+      svg += '<circle class="aus-dot" data-i="'+i+'" cx="'+X(i)+'" cy="'+Y(b.total)+'" r="'+(n > 60 ? 2.2 : 3)+'" fill="var(--critical)" stroke="var(--surface-1)" stroke-width="1"/>';
+    });
+    /* Zonas de hover por fecha (columna completa) */
+    byDate.forEach(function(b, i){
+      var x0 = i === 0 ? padL - step/2 : X(i) - step/2;
+      var tip = '<b>'+DATE_LABELS[b.date]+'</b> &middot; '+b.total+' ausencia'+(b.total===1?'':'s');
+      AUS_TIPOS.forEach(function(t){
+        if (b.c[t.k]) tip += '<div class="aus-tip-row"><span>'+t.label+' ('+t.k+')</span><b>'+b.c[t.k]+'</b></div>';
+      });
+      svg += '<rect class="aus-hit" data-i="'+i+'" data-tip="'+tip.replace(/"/g,'&quot;')+'" x="'+x0+'" y="'+padT+'" width="'+step+'" height="'+plotH+'"/>';
+    });
+    svg += '</svg>';
+    el.innerHTML = svg;
+
+    var dots = el.querySelectorAll('.aus-dot');
+    el.querySelectorAll('.aus-hit').forEach(function(h){
+      var i = Number(h.getAttribute('data-i'));
+      h.addEventListener('mousemove', function(e){
+        showTip(e, h.getAttribute('data-tip'));
+        dots[i].setAttribute('r', 5);
+      });
+      h.addEventListener('mouseleave', function(){
+        hideTip();
+        dots[i].setAttribute('r', n > 60 ? 2.2 : 3);
+      });
+    });
+
+    /* Tabla */
+    var tbl = '<table class="data-table-mini"><thead><tr><th>Fecha</th>';
+    AUS_TIPOS.forEach(function(t){ tbl += '<th title="'+t.label+'">'+t.k+'</th>'; });
+    tbl += '<th>Total</th></tr></thead><tbody>';
+    byDate.slice().reverse().forEach(function(b){
+      tbl += '<tr><td>'+DATE_LABELS[b.date]+'</td>';
+      AUS_TIPOS.forEach(function(t){ tbl += '<td>'+b.c[t.k]+'</td>'; });
+      tbl += '<td><b>'+b.total+'</b></td></tr>';
+    });
+    tbl += '<tr style="font-weight:700;"><td>Total</td>';
+    AUS_TIPOS.forEach(function(t){ tbl += '<td>'+tot[t.k]+'</td>'; });
+    tbl += '<td>'+grand+'</td></tr></tbody></table>';
+    document.getElementById('ausTable').innerHTML = tbl;
+  }
+  var _ausResizeT = null;
+  window.addEventListener('resize', function(){
+    clearTimeout(_ausResizeT);
+    _ausResizeT = setTimeout(renderAusChart, 150);
+  });
+
   function renderAttChart(){
+    renderAusChart();
     if (!document.getElementById('attChart')) return;
     var base = baseRecords();
     var byDate = uniqueDates.map(function(d){
