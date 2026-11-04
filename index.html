@@ -1048,6 +1048,27 @@
       kpiCardFaltas(faltaron, counts, programados) +
       kpiCard('Sin registrar', sinRegistrar, 'accent-neutral', 'Aún sin marcar asistencia') +
       kpiCard('Horas extra', fmtMoney.format(Math.round(costoTotal)), 'accent-money', '');
+
+    /* Detalle al pasar el cursor por la tarjeta Horas extra (2026-11-04):
+       horas y valor de cada concepto para los registros filtrados. */
+    var HE_TIPOS = [['hed','Hora extra diurna','HED'],['hen','Hora extra nocturna','HEN'],['rn','Recargo nocturno','RN'],
+      ['rnd','Recargo nocturno dominical','RND'],['td','Dominical o festivo','TD'],
+      ['hefd','Hora extra diurna dominical','HEFD'],['hefn','Hora extra nocturna dominical','HEFN']];
+    var heTip = '<b>'+(fechaSel === 'ALL' ? 'Todo el período' : DATE_LABELS[fechaSel])+'</b> &middot; '+fmtMoney.format(Math.round(costoTotal));
+    var hayHe = false;
+    HE_TIPOS.forEach(function(t){
+      var hrs = 0; filtered.forEach(function(r){ hrs += r[t[0]] || 0; });
+      if (!hrs) return;
+      hayHe = true;
+      heTip += '<div class="aus-tip-row"><span>'+t[1]+' ('+t[2]+') &middot; '+fmtNum(hrs)+' h</span><b>'+fmtMoney.format(Math.round(hrs*tarifas[t[0]]))+'</b></div>';
+    });
+    if (!hayHe) heTip += '<div class="aus-tip-row"><span>Sin horas extra ni recargos</span><b>—</b></div>';
+    var heCard = grid.lastElementChild;
+    if (heCard){
+      heCard.style.cursor = 'default';
+      heCard.addEventListener('mousemove', function(e){ showTip(e, heTip); });
+      heCard.addEventListener('mouseleave', hideTip);
+    }
   }
   /* Pendientes por contratar: se muestra junto al Indicador de asistencia
      (fila de corte), pero sigue respondiendo solo al filtro Fecha. */
