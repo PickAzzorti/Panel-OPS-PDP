@@ -1047,7 +1047,7 @@
       kpiCard('Asistieron', asistieron, 'accent-good', programados ? (Math.round(asistieron/programados*100)+'% del total') : '—') +
       kpiCardFaltas(faltaron, counts, programados) +
       kpiCard('Sin registrar', sinRegistrar, 'accent-neutral', 'Aún sin marcar asistencia') +
-      kpiCard('Horas extra', fmtMoney.format(Math.round(costoTotal)), 'accent-money', 'valor hora: '+fmtMoney.format(valorHora));
+      kpiCard('Horas extra', fmtMoney.format(Math.round(costoTotal)), 'accent-money', '');
   }
   /* Pendientes por contratar: se muestra junto al Indicador de asistencia
      (fila de corte), pero sigue respondiendo solo al filtro Fecha. */
