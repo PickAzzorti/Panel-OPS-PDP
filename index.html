@@ -1309,12 +1309,11 @@
   }
 
   /* ---------- Ausencias por día (gráfico de línea) ----------
-     Suma AU + PE + IN + VAC por fecha. "0" (no programado) y vacío
+     Suma AU + IN + VAC por fecha (los permisos PE no cuentan en este gráfico). "0" (no programado) y vacío
      (sin registrar) no cuentan. Respeta Tipo personal / Género / Contrato
      (baseRecords) y muestra todo el período hasta hoy. */
   var AUS_TIPOS = [
     {k:'AU',  label:'Ausencia injustificada', cls:'critical'},
-    {k:'PE',  label:'Permiso',                cls:'warning'},
     {k:'IN',  label:'Incapacidad',            cls:'serious'},
     {k:'VAC', label:'Vacaciones',             cls:'neutral'}
   ];
@@ -1338,7 +1337,7 @@
     var idx = {};
     var byDate = fechas.map(function(d, i){
       idx[d] = i;
-      return {date:d, total:0, c:{AU:0, PE:0, IN:0, VAC:0}};
+      return {date:d, total:0, c:{AU:0, IN:0, VAC:0}};
     });
     base.forEach(function(r){
       var i = idx[r.fecha];
@@ -1348,7 +1347,7 @@
     });
 
     /* Resumen */
-    var tot = {AU:0, PE:0, IN:0, VAC:0}, grand = 0, pico = null;
+    var tot = {AU:0, IN:0, VAC:0}, grand = 0, pico = null;
     byDate.forEach(function(b){
       AUS_TIPOS.forEach(function(t){ tot[t.k] += b.c[t.k]; });
       grand += b.total;
