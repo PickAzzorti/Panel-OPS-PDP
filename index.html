@@ -1346,14 +1346,18 @@
     var ausIni = document.getElementById('ausIni').value;
     var ausFin = document.getElementById('ausFin').value;
     if (ausIni && ausFin && ausIni > ausFin){ var _t = ausIni; ausIni = ausFin; ausFin = _t; }
+    /* Sin domingos (2026-11-06, a pedido de la usuaria): no se cuentan en la
+       línea, el total, el promedio, el pico ni la tabla. */
     var fechas = uniqueDates.filter(function(d){
-      return d <= todayISO && (!ausIni || d >= ausIni) && (!ausFin || d <= ausFin);
+      if (d > todayISO || (ausIni && d < ausIni) || (ausFin && d > ausFin)) return false;
+      var p = d.split('-').map(Number);
+      return new Date(p[0], p[1]-1, p[2]).getDay() !== 0;
     });
     var titleEl = document.getElementById('ausChartTitle');
     if (titleEl){
       titleEl.innerHTML = 'Ausencias por d&iacute;a &middot; ' + (fechas.length
         ? (fmtDateHuman(fechas[0]) + ' &ndash; ' + fmtDateHuman(fechas[fechas.length-1]))
-        : 'sin datos en el rango');
+        : 'sin datos en el rango') + ' &middot; sin domingos';
     }
     var idx = {};
     var byDate = fechas.map(function(d, i){
