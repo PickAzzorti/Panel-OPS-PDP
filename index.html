@@ -695,7 +695,7 @@
   };
 
   /* Tamaño de plantilla objetivo (fijo, no editable). Si cambia, avisar. */
-  var PLANTILLA_TOTAL = 92;
+  var PLANTILLA_TOTAL = 90;
 
   /* Personas que NO son parte de la línea operativa (según el usuario,
      10-sep-2026). Cuando el filtro "Tipo personal" = Operativos Línea está
@@ -1046,8 +1046,8 @@
       kpiCard('Asistieron', asistieron, 'accent-good', programados ? (Math.round(asistieron/programados*100)+'% del total') : '—') +
       kpiCardFaltas(faltaron, counts, programados) +
       kpiCard('Sin registrar', sinRegistrar, 'accent-neutral', 'Aún sin marcar asistencia') +
-      kpiCard('Horas extra', fmtMoney.format(Math.round(costoTotal)), 'accent-money', '') +
-      pendientesCardHTML(getFechaFiltered());
+      pendientesCardHTML(getFechaFiltered()) +
+      kpiCard('Horas extra', fmtMoney.format(Math.round(costoTotal)), 'accent-money', '');
 
     /* Detalle al pasar el cursor por la tarjeta Horas extra (2026-11-04):
        horas y valor de cada concepto para los registros filtrados. */
@@ -1063,7 +1063,7 @@
       heTip += '<div class="aus-tip-row"><span>'+t[1]+' ('+t[2]+') &middot; '+fmtNum(hrs)+' h</span><b>'+fmtMoney.format(Math.round(hrs*tarifas[t[0]]))+'</b></div>';
     });
     if (!hayHe) heTip += '<div class="aus-tip-row"><span>Sin horas extra ni recargos</span><b>—</b></div>';
-    var heCard = grid.children[4];
+    var heCard = grid.children[5];
     if (heCard){
       heCard.style.cursor = 'default';
       heCard.addEventListener('mousemove', function(e){ showTip(e, heTip); });
