@@ -139,7 +139,7 @@
   @media (max-width:1300px){ .kpi-grid{grid-template-columns:repeat(4,1fr);} }
   @media (max-width:800px){ .kpi-grid{grid-template-columns:repeat(2,1fr);} }
   @media (max-width:420px){ .kpi-grid{grid-template-columns:1fr;} }
-  @media (min-width:1001px){ #kpiGrid{grid-template-columns:repeat(5,1fr);} }
+  @media (min-width:1001px){ #kpiGrid{grid-template-columns:repeat(6,1fr);} }
   @media (min-width:801px) and (max-width:1000px){ #kpiGrid{grid-template-columns:repeat(3,1fr);} }
   .kpi{
     padding:16px;
@@ -521,10 +521,9 @@
   </div>
 
 
-  <div class="incident-dist-row three">
+  <div class="incident-dist-row">
     <div id="incidenciasCardWrap"></div>
     <div id="kpiAsistCorteWrap"></div>
-    <div id="kpiPendientesWrap"></div>
   </div>
 
   <div class="card" id="incidenciasDetailCard" style="display:none;padding:16px;margin-bottom:18px;">
@@ -1047,7 +1046,8 @@
       kpiCard('Asistieron', asistieron, 'accent-good', programados ? (Math.round(asistieron/programados*100)+'% del total') : '—') +
       kpiCardFaltas(faltaron, counts, programados) +
       kpiCard('Sin registrar', sinRegistrar, 'accent-neutral', 'Aún sin marcar asistencia') +
-      kpiCard('Horas extra', fmtMoney.format(Math.round(costoTotal)), 'accent-money', '');
+      kpiCard('Horas extra', fmtMoney.format(Math.round(costoTotal)), 'accent-money', '') +
+      pendientesCardHTML(getFechaFiltered());
 
     /* Detalle al pasar el cursor por la tarjeta Horas extra (2026-11-04):
        horas y valor de cada concepto para los registros filtrados. */
@@ -1063,7 +1063,7 @@
       heTip += '<div class="aus-tip-row"><span>'+t[1]+' ('+t[2]+') &middot; '+fmtNum(hrs)+' h</span><b>'+fmtMoney.format(Math.round(hrs*tarifas[t[0]]))+'</b></div>';
     });
     if (!hayHe) heTip += '<div class="aus-tip-row"><span>Sin horas extra ni recargos</span><b>—</b></div>';
-    var heCard = grid.lastElementChild;
+    var heCard = grid.children[4];
     if (heCard){
       heCard.style.cursor = 'default';
       heCard.addEventListener('mousemove', function(e){ showTip(e, heTip); });
@@ -1073,8 +1073,8 @@
   /* Pendientes por contratar: se muestra junto al Indicador de asistencia
      (fila de corte), pero sigue respondiendo solo al filtro Fecha. */
   function renderPendientes(){
-    var w = document.getElementById('kpiPendientesWrap');
-    if (w) w.innerHTML = pendientesCardHTML(getFechaFiltered());
+    /* Desde 2026-11-06 la tarjeta va en la fila de arriba, junto a Horas
+       extra (se agrega en renderKPIs). Sigue respondiendo solo a Fecha. */
   }
   function kpiCard(label, value, accent, sub){
     return '<div class="card kpi '+accent+'">' +
