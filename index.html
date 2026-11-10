@@ -425,6 +425,14 @@
   .sugg-item b{color:var(--accent-ink,#a9adf5);font-weight:800;}
   .sugg-item.active,.sugg-item:hover{background:var(--neutral-bg);}
   .sugg-empty{padding:8px 10px;font-size:12px;color:var(--text-muted);}
+
+  /* ---- Botón Descargar Excel en Total $ en extras (2026-11-10) ---- */
+  .xl-btn{position:absolute;top:14px;right:14px;display:inline-flex;align-items:center;gap:6px;font-family:inherit;font-size:12px;font-weight:700;
+    padding:5px 11px;border-radius:999px;border:1px solid var(--border-strong);background:transparent;color:var(--text-primary);cursor:pointer;}
+  .xl-btn:hover{background:var(--neutral-bg);}
+  .xl-btn:disabled{opacity:.6;cursor:progress;}
+  .xl-btn svg{width:14px;height:14px;}
+  .xl-msg{font-size:11.5px;color:var(--text-muted);}
 </style>
 
 <div class="wrap">
@@ -1327,9 +1335,12 @@
     document.getElementById('kpiTotalWrap').innerHTML =
       '<div class="card kpi accent-violet">' +
         '<span class="'+pinCls+'">'+pinTxt+'</span>' +
+        '<button type="button" class="xl-btn" id="btnExcelExtras" title="Descargar en Excel el detalle de horas extra y recargos del corte ('+corteLabel(corteIni, corteFin)+')">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>Descargar Excel</button>' +
         '<span class="label">Total $ en extras</span>' +
         '<span class="value">'+fmtMoney.format(Math.round(costoTotal))+'</span>' +
         '<span class="sub">'+totalExtrasSub+'</span>' +
+        '<span class="xl-msg" id="xlMsg"></span>' +
       '</div>';
     document.getElementById('kpiAsistCorteWrap').innerHTML =
       '<div class="card kpi '+accentClass+'">' +
@@ -2088,6 +2099,162 @@
     var _renderAll = renderAll;
     renderAll = function(){ var r = _renderAll.apply(this, arguments); label(); return r; };
     label();
+  })();
+
+  /* ---------- Descargar Excel del corte (2026-11-10) ----------
+     Botón en la tarjeta Total $ en extras. Exporta el detalle de horas extra
+     y recargos del Filtro de corte (Fecha inicial – Fecha final), PDP +
+     Despachos, con las mismas tarifas del dashboard. Hojas: Resumen, Por
+     persona y Detalle (registro a registro). La librería de Excel (SheetJS)
+     se carga solo al hacer clic, así el dashboard sigue abriendo sin
+     internet. */
+  (function(){
+    var XLSX_URL = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    var CONC = [['hed','HED','Hora extra diurna'],['hen','HEN','Hora extra nocturna'],['rn','RN','Recargo nocturno'],
+      ['rnd','RND','Recargo nocturno dominical'],['td','TD','Dominical o festivo'],
+      ['hefd','HEFD','Hora extra diurna dominical'],['hefn','HEFN','Hora extra nocturna dominical']];
+    var cargando = null;
+    function cargarXLSX(){
+      if (window.XLSX) return Promise.resolve(window.XLSX);
+      if (cargando) return cargando;
+      cargando = new Promise(function(res, rej){
+        var s = document.createElement('script'); s.src = XLSX_URL;
+        s.onload = function(){ window.XLSX ? res(window.XLSX) : rej(new Error('sin XLSX')); };
+        s.onerror = function(){ cargando = null; rej(new Error('No se pudo cargar la librería de Excel (¿sin internet?)')); };
+        document.head.appendChild(s);
+      });
+      return cargando;
+    }
+    /* Fecha como número de serie de Excel (evita el corrimiento por zona horaria). */
+    function aFecha(iso){ var p = iso.split('-').map(Number); return {t:'n', v:(Date.UTC(p[0], p[1]-1, p[2]) - Date.UTC(1899, 11, 30)) / 86400000, z:'dd/mm/yyyy'}; }
+    function msg(t){ var el = document.getElementById('xlMsg'); if (el) el.textContent = t || ''; }
+
+    function construir(XLSX){
+      var ini = document.getElementById('fGlobalIni').value;
+      var fin = document.getElementById('fGlobalFin').value;
+      var conHoras = function(r){ return totalHoras(r) > 0; };
+      var filas = getCorteFiltered().filter(conHoras).map(function(r){ return {a:'PDP', r:r}; })
+        .concat(getDespCorteFiltered().filter(conHoras).map(function(r){ return {a:'Despachos', r:r}; }));
+      filas.sort(function(x,y){ return x.r.fecha < y.r.fecha ? -1 : x.r.fecha > y.r.fecha ? 1 :
+        (x.a !== y.a ? (x.a === 'PDP' ? -1 : 1) : String(x.r.nombre).localeCompare(String(y.r.nombre),'es')); });
+      var MONEY = '"$"#,##0', HRS = '#,##0.##';
+      function fmtCols(ws, desdeFila, colsHoras, colsPlata){
+        var rg = XLSX.utils.decode_range(ws['!ref']);
+        for (var R = desdeFila; R <= rg.e.r; R++){
+          colsHoras.forEach(function(C){ var c = ws[XLSX.utils.encode_cell({r:R,c:C})]; if (c && c.t === 'n') c.z = HRS; });
+          colsPlata.forEach(function(C){ var c = ws[XLSX.utils.encode_cell({r:R,c:C})]; if (c && c.t === 'n') c.z = MONEY; });
+        }
+      }
+      var periodo = (ini ? fmtDateHuman(ini) + ' ' + ini.slice(0,4) : 'inicio') + ' – ' + (fin ? fmtDateHuman(fin) + ' ' + fin.slice(0,4) : 'hoy');
+
+      /* Detalle */
+      var hd = ['Área','Fecha','Día','Nombre','Cédula','Turno','Contrato'].concat(CONC.map(function(c){ return c[1]; })).concat(['Total horas','Costo $']);
+      var det = [hd];
+      filas.forEach(function(f){
+        var r = f.r, d = aFecha(r.fecha);
+        det.push([f.a, d, DIAS[new Date(r.fecha+'T00:00').getDay()], r.nombre, String(r.cedula), r.turno,
+          f.a === 'PDP' ? (contratoDe(r) === 'SIN' ? 'Sin dato' : contratoDe(r)) : '']
+          .concat(CONC.map(function(c){ return r[c[0]] || 0; })).concat([totalHoras(r), costo(r)]));
+      });
+      var n = det.length;
+      if (n > 1){
+        var tot = ['Total','','','','','',''];
+        for (var C = 7; C < hd.length; C++){ var col = XLSX.utils.encode_col(C); tot.push({t:'n', f:'SUM('+col+'2:'+col+n+')'}); }
+        det.push(tot);
+      }
+      var wsD = XLSX.utils.aoa_to_sheet(det);
+      fmtCols(wsD, 1, [7,8,9,10,11,12,13,14], [15]);
+      wsD['!cols'] = [{wch:10},{wch:11},{wch:10},{wch:36},{wch:13},{wch:20},{wch:10}].concat(CONC.map(function(){ return {wch:7}; })).concat([{wch:11},{wch:13}]);
+      wsD['!autofilter'] = {ref: XLSX.utils.encode_range({s:{r:0,c:0}, e:{r:Math.max(1,n-1), c:hd.length-1}})};
+
+      /* Por persona */
+      var m = {};
+      filas.forEach(function(f){
+        var k = f.a + '|' + f.r.cedula, r = f.r;
+        var o = m[k] || (m[k] = {a:f.a, nombre:r.nombre, ced:String(r.cedula), dias:{}, th:0, costo:0, _f:''});
+        if (r.fecha >= o._f){ o.nombre = r.nombre; o._f = r.fecha; }
+        CONC.forEach(function(c){ o[c[0]] = (o[c[0]]||0) + (r[c[0]]||0); });
+        o.th += totalHoras(r); o.costo += costo(r); o.dias[r.fecha] = 1;
+      });
+      var lista = Object.keys(m).map(function(k){ return m[k]; }).sort(function(a,b){ return b.costo - a.costo; });
+      var hp = ['Área','Nombre','Cédula','Días con extras'].concat(CONC.map(function(c){ return c[1]; })).concat(['Total horas','Costo $']);
+      var per = [hp];
+      lista.forEach(function(o){
+        per.push([o.a, o.nombre, o.ced, Object.keys(o.dias).length].concat(CONC.map(function(c){ return Math.round((o[c[0]]||0)*100)/100; }))
+          .concat([Math.round(o.th*100)/100, o.costo]));
+      });
+      var np = per.length;
+      if (np > 1){
+        var tp = ['Total','','',''];
+        for (var C2 = 4; C2 < hp.length; C2++){ var col2 = XLSX.utils.encode_col(C2); tp.push({t:'n', f:'SUM('+col2+'2:'+col2+np+')'}); }
+        per.push(tp);
+      }
+      var wsP = XLSX.utils.aoa_to_sheet(per);
+      fmtCols(wsP, 1, [4,5,6,7,8,9,10,11], [12]);
+      wsP['!cols'] = [{wch:10},{wch:36},{wch:13},{wch:9}].concat(CONC.map(function(){ return {wch:7}; })).concat([{wch:11},{wch:13}]);
+      wsP['!autofilter'] = {ref: XLSX.utils.encode_range({s:{r:0,c:0}, e:{r:Math.max(1,np-1), c:hp.length-1}})};
+
+      /* Resumen */
+      var res = [['Reporte de horas extra y recargos · Control Personal PDP'], ['Período (filtro de corte)', periodo],
+        ['Generado', new Date().toLocaleString('es-CO')], [],
+        ['Código','Concepto','Tarifa por hora','Horas PDP','Horas Despachos','Horas total','Valor PDP','Valor Despachos','Valor total']];
+      var sum = {PDP:{}, Despachos:{}};
+      filas.forEach(function(f){ CONC.forEach(function(c){ sum[f.a][c[0]] = (sum[f.a][c[0]]||0) + (f.r[c[0]]||0); }); });
+      CONC.forEach(function(c, i){
+        var R1 = res.length + 1, hpdp = Math.round((sum.PDP[c[0]]||0)*100)/100, hdes = Math.round((sum.Despachos[c[0]]||0)*100)/100;
+        res.push([c[1], c[2], tarifas[c[0]], hpdp, hdes, {t:'n', f:'D'+R1+'+E'+R1}, {t:'n', f:'C'+R1+'*D'+R1}, {t:'n', f:'C'+R1+'*E'+R1}, {t:'n', f:'G'+R1+'+H'+R1}]);
+      });
+      var r0 = 6, r1 = res.length;
+      res.push(['Total',''].concat(['C','D','E','F','G','H','I'].map(function(L){ return L === 'C' ? '' : {t:'n', f:'SUM('+L+r0+':'+L+r1+')'}; })));
+      res.push([]); res.push(['Personas con extras', lista.length]); res.push(['Registros', filas.length]);
+      res.push([]); res.push(['Tarifas: salario mínimo 2026. RN es solo el recargo adicional del 35%. Despachos usa las mismas tarifas de PDP.']);
+      var wsR = XLSX.utils.aoa_to_sheet(res);
+      fmtCols(wsR, 5, [3,4,5], [2,6,7,8]);
+      wsR['!cols'] = [{wch:10},{wch:32},{wch:14},{wch:11},{wch:15},{wch:11},{wch:14},{wch:16},{wch:14}];
+
+      var wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, wsR, 'Resumen');
+      XLSX.utils.book_append_sheet(wb, wsP, 'Por persona');
+      XLSX.utils.book_append_sheet(wb, wsD, 'Detalle');
+      var nombre = 'Horas extra PDP ' + (ini || 'inicio') + ' a ' + (fin || todayISO) + '.xlsx';
+      var buf = XLSX.write(wb, {bookType:'xlsx', type:'array'});
+      return {nombre: nombre, blob: new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}), n: filas.length};
+    }
+
+    function guardarNormal(f){
+      var a = document.createElement('a'); a.href = URL.createObjectURL(f.blob); a.download = f.nombre;
+      document.body.appendChild(a); a.click();
+      setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+    }
+    function guardar(f){
+      /* En claude.ai la descarga pasa por la confirmación del visor; en
+         GitHub Pages o el archivo local, descarga directa. */
+      if (window.claude && typeof window.claude.use === 'function'){
+        return window.claude.use('downloads').then(function(dl){
+          if (!dl){ guardarNormal(f); return 'ok'; }
+          return dl.save({filename: f.nombre, data: f.blob}).then(function(){ return 'ok'; }, function(e){
+            if (e && e.code === 'declined') return 'cancelado';
+            if (e && e.code === 'rate_limited') return 'espera';
+            guardarNormal(f); return 'ok';
+          });
+        });
+      }
+      guardarNormal(f); return Promise.resolve('ok');
+    }
+
+    document.addEventListener('click', function(e){
+      var b = e.target.closest && e.target.closest('#btnExcelExtras');
+      if (!b) return;
+      b.disabled = true; msg('Preparando Excel…');
+      cargarXLSX().then(function(XLSX){
+        var f = construir(XLSX);
+        return guardar(f).then(function(st){
+          msg(st === 'cancelado' ? 'Descarga cancelada' : st === 'espera' ? 'Hay una descarga pendiente, intenta de nuevo' :
+            ('Excel listo · ' + f.n + ' registros'));
+        });
+      }).catch(function(err){ msg(err && err.message ? err.message : 'No se pudo generar el Excel'); })
+        .then(function(){ var bb = document.getElementById('btnExcelExtras'); if (bb) bb.disabled = false; });
+    });
   })();
 
 })();
