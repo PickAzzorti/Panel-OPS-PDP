@@ -371,6 +371,8 @@
 
   /* ---- Detalle de personal: columnas centradas (Nombre a la izquierda) ---- */
   #mainTable th, #mainTable td{text-align:center;}
+  /* Fila de totales al final del Detalle de personal (2026-11-10) */
+  #mainTable tfoot td{font-weight:700;border-top:2px solid var(--border-strong);background:var(--neutral-bg);padding:9px 10px;white-space:nowrap;}
   #mainTable th:first-child, #mainTable td:first-child{text-align:left;}
 
   /* ---- Tarjeta Ausencias: desglose en lista a la derecha ---- */
@@ -520,6 +522,7 @@
           </tr>
         </thead>
         <tbody id="mainTbody"></tbody>
+        <tfoot id="mainTfoot"></tfoot>
       </table>
     </div>
   </div>
@@ -1818,6 +1821,18 @@
       }).join('');
     }
     document.getElementById('rowCount').textContent = rows.length + ' registro' + (rows.length===1?'':'s');
+    /* Total de cada concepto y del costo al final de la tabla (2026-11-10) */
+    var tfoot = document.getElementById('mainTfoot');
+    if (tfoot){
+      if (!rows.length){ tfoot.innerHTML = ''; }
+      else {
+        var tot = {hed:0,hen:0,rn:0,rnd:0,td:0,hefd:0,hefn:0,costo:0};
+        rows.forEach(function(x){ for (var k in tot) tot[k] += x[k] || 0; });
+        tfoot.innerHTML = '<tr><td colspan="5">Total</td>' +
+          ['hed','hen','rn','rnd','td','hefd','hefn'].map(function(k){ return '<td class="num">'+(tot[k] ? fmtNum(Math.round(tot[k]*100)/100) : '—')+'</td>'; }).join('') +
+          '<td class="num">'+(tot.costo ? fmtMoney.format(Math.round(tot.costo)) : '—')+'</td></tr>';
+      }
+    }
   }
 
   /* ---------- Master render ---------- */
