@@ -423,6 +423,23 @@
   .sugg-item b{color:var(--accent-ink,#a9adf5);font-weight:800;}
   .sugg-item.active,.sugg-item:hover{background:var(--neutral-bg);}
   .sugg-empty{padding:8px 10px;font-size:12px;color:var(--text-muted);}
+
+  /* ---- Detalle de horas extra por período (2026-11-10) ---- */
+  a.he-link{color:var(--accent);font-weight:600;text-decoration:none;font-size:12px;}
+  a.he-link:hover{text-decoration:underline;}
+  #heDetalle{padding:16px;margin-bottom:18px;scroll-margin-top:12px;}
+  #heDetalle .he-head{display:flex;flex-wrap:wrap;align-items:center;gap:12px;justify-content:space-between;margin-bottom:12px;}
+  #heDetalle .he-head h3{margin:0;font-size:15px;}
+  #heDetalle .he-ctrl{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px;margin-bottom:12px;}
+  #heDetalle .he-sum{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-bottom:12px;}
+  #heDetalle .he-sum div{border:1px solid var(--border);border-radius:10px;padding:8px 10px;}
+  #heDetalle .he-sum span{display:block;font-size:11px;color:var(--text-muted);}
+  #heDetalle .he-sum b{display:block;font-size:15px;font-variant-numeric:tabular-nums;}
+  #heDetalle .he-sum small{color:var(--text-secondary);font-size:11.5px;}
+  #heDetalle .he-sum .tot{border-color:var(--accent);}
+  #heDetalle th.num{text-align:right;}
+  #heDetalle tfoot td{font-weight:700;border-top:2px solid var(--border-strong);}
+  #heDetalle .he-empty{padding:14px;color:var(--text-muted);font-size:13px;}
 </style>
 
 <div class="wrap">
@@ -485,6 +502,29 @@
   </div>
 
   <div class="kpi-grid" id="kpiGrid"></div>
+
+  <div class="card" id="heDetalle" hidden>
+    <div class="he-head">
+      <h3 id="heTitulo">Detalle de horas extra y recargos</h3>
+      <a href="#" class="he-link" id="heCerrar">Cerrar &times;</a>
+    </div>
+    <div class="he-ctrl">
+      <div class="field"><label for="heIni">Desde</label><input type="date" id="heIni"></div>
+      <div class="field"><label for="heFin">Hasta</label><input type="date" id="heFin"></div>
+      <div class="field"><label for="heContrato">Tipo de contrato</label>
+        <select id="heContrato"><option value="ALL">Todos</option><option value="INCA">INCA</option><option value="TEMPORAL">TEMPORAL</option></select></div>
+      <div class="seg-toggle" id="heVista" role="group" aria-label="Agrupar detalle">
+        <button type="button" class="seg-btn on" data-v="P">Por persona</button>
+        <button type="button" class="seg-btn" data-v="D">Por d&iacute;a</button>
+        <button type="button" class="seg-btn" data-v="R">Registro a registro</button>
+      </div>
+      <span class="count-pill" id="heCount"></span>
+    </div>
+    <div class="he-sum" id="heSum"></div>
+    <div class="table-scroll" style="max-height:520px;overflow:auto;">
+      <table class="main" id="heTabla"></table>
+    </div>
+  </div>
 
 
   <div class="card table-card" style="margin-bottom:18px;">
@@ -1047,7 +1087,7 @@
       kpiCardFaltas(faltaron, counts, programados) +
       kpiCard('Sin registrar', sinRegistrar, 'accent-neutral', 'Aún sin marcar asistencia') +
       pendientesCardHTML(getFechaFiltered()) +
-      kpiCard('Horas extra', fmtMoney.format(Math.round(costoTotal)), 'accent-money', '');
+      kpiCard('Horas extra', fmtMoney.format(Math.round(costoTotal)), 'accent-money', '<a href="#detalle-horas-extra" class="he-link">Ver detalle por per&iacute;odo &rarr;</a>');
 
     /* Detalle al pasar el cursor por la tarjeta Horas extra (2026-11-04):
        horas y valor de cada concepto para los registros filtrados. */
@@ -1969,6 +2009,117 @@
     var _renderAll = renderAll;
     renderAll = function(){ var r = _renderAll.apply(this, arguments); label(); return r; };
     label();
+  })();
+
+  /* ---------- Detalle de horas extra por período (2026-11-10) ----------
+     Se abre con el hipervínculo de la tarjeta Horas extra o con la dirección
+     ...#detalle-horas-extra. Rango propio (por defecto: fecha inicial de corte
+     a hoy); no depende de los filtros de arriba. */
+  (function(){
+    var sec = document.getElementById('heDetalle');
+    var fIni = document.getElementById('heIni'), fFin = document.getElementById('heFin');
+    var fCon = document.getElementById('heContrato');
+    var tabla = document.getElementById('heTabla');
+    var vista = 'P';
+    var K = [['hed','HED','Hora extra diurna'],['hen','HEN','Hora extra nocturna'],['rn','RN','Recargo nocturno'],
+      ['rnd','RND','Recargo nocturno dominical'],['td','TD','Dominical o festivo'],
+      ['hefd','HEFD','Hora extra diurna dominical'],['hefn','HEFN','Hora extra nocturna dominical']];
+    function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+    function h0(n){ return n ? fmtNum(Math.round(n*100)/100) : '—'; }
+    function nuevo(){ var o = {costo:0, th:0, dias:{}}; K.forEach(function(k){ o[k[0]] = 0; }); return o; }
+    function sumar(o, r){ K.forEach(function(k){ o[k[0]] += r[k[0]] || 0; }); o.th += totalHoras(r); o.costo += costo(r); o.dias[r.fecha] = 1; }
+    function dLabel(d){ return DATE_LABELS[d] || fmtDateHuman(d); }
+
+    function render(){
+      var ini = fIni.value, fin = fFin.value, con = fCon.value;
+      if (ini && fin && ini > fin){ var t = ini; ini = fin; fin = t; }
+      var rows = records.filter(function(r){
+        if (ini && r.fecha < ini) return false;
+        if (fin && r.fecha > fin) return false;
+        if (con !== 'ALL' && contratoDe(r) !== con) return false;
+        return totalHoras(r) > 0;
+      });
+      document.getElementById('heTitulo').innerHTML = 'Detalle de horas extra y recargos &middot; ' +
+        (ini ? fmtDateHuman(ini) : 'inicio') + ' – ' + (fin ? fmtDateHuman(fin) : 'hoy') +
+        (con !== 'ALL' ? ' &middot; ' + con : '');
+      var tot = nuevo(); rows.forEach(function(r){ sumar(tot, r); });
+      var personas = {}; rows.forEach(function(r){ personas[r.cedula] = 1; });
+      var sum = '<div class="tot"><span>Total del período</span><b>'+fmtMoney.format(Math.round(tot.costo))+'</b><small>'+h0(tot.th)+' h &middot; '+Object.keys(personas).length+' personas</small></div>';
+      K.forEach(function(k){
+        if (!tot[k[0]]) return;
+        sum += '<div title="'+k[2]+'"><span>'+k[1]+' &middot; '+k[2]+'</span><b>'+fmtMoney.format(Math.round(tot[k[0]]*tarifas[k[0]]))+'</b><small>'+h0(tot[k[0]])+' h</small></div>';
+      });
+      document.getElementById('heSum').innerHTML = sum;
+
+      var cols = K.map(function(k){ return '<th class="num" title="'+k[2]+'">'+k[1]+'</th>'; }).join('');
+      var celdas = function(o){ return K.map(function(k){ return '<td class="num">'+h0(o[k[0]])+'</td>'; }).join(''); };
+      var head, body = '', n = 0;
+      if (vista === 'P'){
+        var m = {};
+        rows.forEach(function(r){
+          var o = m[r.cedula] || (m[r.cedula] = Object.assign(nuevo(), {nombre:r.nombre, cedula:r.cedula}));
+          if (r.fecha >= (o._f||'')){ o.nombre = r.nombre; o._f = r.fecha; }
+          sumar(o, r);
+        });
+        var lista = Object.keys(m).map(function(c){ return m[c]; }).sort(function(a,b){ return b.costo - a.costo; });
+        n = lista.length;
+        head = '<tr><th>Nombre</th><th>C&eacute;dula</th><th class="num">D&iacute;as</th>'+cols+'<th class="num">Total h</th><th class="num">Costo $</th></tr>';
+        lista.forEach(function(o){
+          body += '<tr><td>'+esc(o.nombre)+'</td><td>'+esc(o.cedula)+'</td><td class="num">'+Object.keys(o.dias).length+'</td>'+celdas(o)+'<td class="num">'+h0(o.th)+'</td><td class="num">'+fmtMoney.format(Math.round(o.costo))+'</td></tr>';
+        });
+        var foot = '<tr><td colspan="3">Total</td>'+celdas(tot)+'<td class="num">'+h0(tot.th)+'</td><td class="num">'+fmtMoney.format(Math.round(tot.costo))+'</td></tr>';
+      } else if (vista === 'D'){
+        var d = {};
+        rows.forEach(function(r){ var o = d[r.fecha] || (d[r.fecha] = Object.assign(nuevo(), {fecha:r.fecha, p:{}})); o.p[r.cedula] = 1; sumar(o, r); });
+        var fechas = Object.keys(d).sort();
+        n = fechas.length;
+        head = '<tr><th>Fecha</th><th class="num">Personas</th>'+cols+'<th class="num">Total h</th><th class="num">Costo $</th></tr>';
+        fechas.forEach(function(f){
+          var o = d[f], dom = new Date(f+'T00:00').getDay() === 0;
+          body += '<tr'+(dom?' style="color:var(--critical,#e5484d)"':'')+'><td>'+dLabel(f)+'</td><td class="num">'+Object.keys(o.p).length+'</td>'+celdas(o)+'<td class="num">'+h0(o.th)+'</td><td class="num">'+fmtMoney.format(Math.round(o.costo))+'</td></tr>';
+        });
+        var foot = '<tr><td colspan="2">Total</td>'+celdas(tot)+'<td class="num">'+h0(tot.th)+'</td><td class="num">'+fmtMoney.format(Math.round(tot.costo))+'</td></tr>';
+      } else {
+        var lr = rows.slice().sort(function(a,b){ return a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : String(a.nombre).localeCompare(b.nombre,'es'); });
+        n = lr.length;
+        head = '<tr><th>Fecha</th><th>Nombre</th><th>C&eacute;dula</th><th>Turno</th>'+cols+'<th class="num">Total h</th><th class="num">Costo $</th></tr>';
+        lr.forEach(function(r){
+          body += '<tr><td>'+dLabel(r.fecha)+'</td><td>'+esc(r.nombre)+'</td><td>'+esc(r.cedula)+'</td><td>'+esc(r.turno)+'</td>'+celdas(r)+'<td class="num">'+h0(totalHoras(r))+'</td><td class="num">'+fmtMoney.format(Math.round(costo(r)))+'</td></tr>';
+        });
+        var foot = '<tr><td colspan="4">Total</td>'+celdas(tot)+'<td class="num">'+h0(tot.th)+'</td><td class="num">'+fmtMoney.format(Math.round(tot.costo))+'</td></tr>';
+      }
+      document.getElementById('heCount').textContent = n + (vista === 'P' ? ' personas' : vista === 'D' ? ' días' : ' registros');
+      tabla.innerHTML = rows.length
+        ? '<thead>'+head+'</thead><tbody>'+body+'</tbody><tfoot>'+foot+'</tfoot>'
+        : '<tbody><tr><td class="he-empty">No hay horas extra ni recargos en este período.</td></tr></tbody>';
+    }
+
+    function abrir(){
+      if (!fIni.value) fIni.value = loadCorteIni();
+      if (!fFin.value) fFin.value = todayISO;
+      sec.hidden = false; render();
+      sec.scrollIntoView({behavior:'smooth', block:'start'});
+    }
+    function revisarHash(){ if (location.hash === '#detalle-horas-extra') abrir(); }
+    window.addEventListener('hashchange', revisarHash);
+    document.addEventListener('click', function(e){
+      var a = e.target.closest && e.target.closest('a[href="#detalle-horas-extra"]');
+      if (a && location.hash === '#detalle-horas-extra'){ e.preventDefault(); abrir(); }
+    });
+    document.getElementById('heCerrar').addEventListener('click', function(e){
+      e.preventDefault(); sec.hidden = true;
+      try { history.replaceState(null, '', location.pathname + location.search); } catch(err){}
+      document.getElementById('kpiGrid').scrollIntoView({behavior:'smooth', block:'start'});
+    });
+    [fIni, fFin, fCon].forEach(function(el){ el.addEventListener('change', render); });
+    document.querySelectorAll('#heVista .seg-btn').forEach(function(b){
+      b.addEventListener('click', function(){
+        vista = b.getAttribute('data-v');
+        document.querySelectorAll('#heVista .seg-btn').forEach(function(x){ x.classList.toggle('on', x === b); });
+        render();
+      });
+    });
+    revisarHash();
   })();
 
 })();
