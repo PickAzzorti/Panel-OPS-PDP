@@ -434,6 +434,39 @@
   .xl-btn svg{width:14px;height:14px;}
   .xl-msg{font-size:11.5px;color:var(--text-muted);align-self:center;}
   .xl-btn svg{flex:none;}
+
+  /* ---- Checklist calendario: programación revisada (2026-11-23) ---- */
+  .ck-card{padding:18px;margin-bottom:18px;}
+  .ck-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 14px;margin-bottom:12px;}
+  .ck-head h3{font-size:15px;margin:0;}
+  .ck-nav{display:flex;align-items:center;gap:8px;}
+  .ck-nav b{min-width:140px;text-align:center;font-size:14px;}
+  .ck-nav button{font-family:inherit;font-size:16px;font-weight:800;width:32px;height:32px;border-radius:8px;cursor:pointer;
+    background:transparent;border:1px solid var(--border-strong);color:var(--text-primary);}
+  .ck-nav button:hover{background:var(--neutral-bg);}
+  .ck-nav button:disabled{opacity:.35;cursor:default;}
+  .ck-sum{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px;}
+  .ck-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;}
+  .ck-dow{font-size:11px;font-weight:700;color:var(--text-muted);text-align:center;padding-bottom:2px;}
+  .ck-day{position:relative;display:flex;flex-direction:column;align-items:flex-start;justify-content:space-between;gap:4px;
+    min-height:64px;padding:7px 8px;border-radius:10px;border:1px solid var(--border);background:var(--surface-2);
+    font-family:inherit;color:var(--text-primary);text-align:left;cursor:pointer;}
+  .ck-day:hover:not(:disabled){border-color:var(--accent);}
+  .ck-day:disabled{cursor:default;opacity:.4;}
+  .ck-day .n{font-size:13px;font-weight:700;}
+  .ck-day.dom .n{color:#fca5a5;}
+  .ck-day .st{font-size:11px;font-weight:600;color:var(--text-muted);line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;}
+  .ck-day .box{position:absolute;top:7px;right:8px;width:18px;height:18px;border-radius:5px;border:1.5px solid var(--border-strong);
+    display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;}
+  .ck-day.ok{background:var(--good-bg);border-color:rgba(74,222,128,.45);}
+  .ck-day.ok .box{background:var(--good);border-color:var(--good);color:#0d2416;}
+  .ck-day.ok .st{color:var(--good);}
+  .ck-day.pend{border-color:rgba(251,191,36,.5);}
+  .ck-day.pend .st{color:var(--warning);}
+  .ck-day.hoy{box-shadow:inset 0 0 0 1px var(--accent);}
+  .ck-day.empty{visibility:hidden;}
+  .ck-note{font-size:11.5px;color:var(--text-muted);margin:10px 0 0;}
+  @media (max-width:560px){ .ck-day{min-height:52px;padding:5px;} .ck-day .st{display:none;} .ck-nav b{min-width:110px;} }
 </style>
 
 <div class="wrap">
@@ -604,6 +637,20 @@
       <div id="distChart"></div>
       <div id="distTable" style="display:none;margin-top:12px;"></div>
     </div>
+  </div>
+
+  <div class="card ck-card" id="ckCard">
+    <div class="ck-head">
+      <h3>Checklist &middot; Programaci&oacute;n revisada</h3>
+      <div class="ck-nav">
+        <button type="button" id="ckPrev" aria-label="Mes anterior">&lsaquo;</button>
+        <b id="ckMes">—</b>
+        <button type="button" id="ckNext" aria-label="Mes siguiente">&rsaquo;</button>
+      </div>
+    </div>
+    <div class="ck-sum" id="ckSum"></div>
+    <div class="ck-grid" id="ckGrid"></div>
+    <p class="ck-note" id="ckNote">Cargando marcas…</p>
   </div>
 
   <footer>
@@ -2224,6 +2271,118 @@
       }
       guardarNormal(nombre, blob); return Promise.resolve('ok');
     }
+
+
+  /* ---------- Checklist calendario · programación revisada (2026-11-23) ----------
+     Una casilla por día para marcar que ya se revisó la programación (horas y
+     asistencia) de ese día. Las marcas son COMPARTIDAS: se guardan en la base
+     de datos del artefacto de claude.ai (colección "revision", un documento
+     por fecha con quién y cuándo la marcó). En GitHub Pages o el archivo local
+     no hay dónde guardarlas, así que el calendario se ve sin marcas. */
+  (function(){
+    var MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    var conDatos = {}; uniqueDates.forEach(function(d){ conDatos[d] = 1; });
+    var primerMes = uniqueDates.length ? uniqueDates[0].slice(0,7) : todayISO.slice(0,7);
+    var mes = todayISO.slice(0,7);
+    var marcas = {};          /* fecha -> {por, en} */
+    var db = null, usr = null, miId = null, puedeEscribir = true, listo = false, enVuelo = {};
+    var grid = document.getElementById('ckGrid'), note = document.getElementById('ckNote');
+
+    function iso(y, m, d){ return y + '-' + String(m).padStart(2,'0') + '-' + String(d).padStart(2,'0'); }
+    function mesMas(ym, k){ var y = +ym.slice(0,4), m = +ym.slice(5,7) - 1 + k; y += Math.floor(m/12); m = ((m%12)+12)%12; return y + '-' + String(m+1).padStart(2,'0'); }
+    function horaCorta(t){ try { var d = new Date(t); return d.toLocaleDateString('es-CO',{day:'2-digit',month:'short'}) + ' ' + d.toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'}); } catch(e){ return ''; } }
+
+    function render(){
+      var y = +mes.slice(0,4), m = +mes.slice(5,7);
+      document.getElementById('ckMes').textContent = MESES[m-1] + ' ' + y;
+      document.getElementById('ckPrev').disabled = mes <= primerMes;
+      document.getElementById('ckNext').disabled = mes >= todayISO.slice(0,7);
+      var ndias = new Date(y, m, 0).getDate(), off = (new Date(y, m-1, 1).getDay() + 6) % 7;
+      var ids = [];
+      for (var k in marcas) if (marcas[k].por) ids.push(marcas[k].por);
+      var pintar = function(perfiles){
+        grid.textContent = '';
+        ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'].forEach(function(t){ var e = document.createElement('div'); e.className = 'ck-dow'; e.textContent = t; grid.appendChild(e); });
+        for (var i = 0; i < off; i++){ var v = document.createElement('div'); v.className = 'ck-day empty'; grid.appendChild(v); }
+        var rev = 0, pend = 0;
+        for (var d = 1; d <= ndias; d++){
+          var f = iso(y, m, d), b = document.createElement('button');
+          b.type = 'button'; b.className = 'ck-day'; b.dataset.f = f;
+          var dom = new Date(y, m-1, d).getDay() === 0;
+          if (dom) b.classList.add('dom');
+          if (f === todayISO) b.classList.add('hoy');
+          var mk = marcas[f], st = '';
+          if (f > todayISO){ b.disabled = true; }
+          else if (mk){
+            b.classList.add('ok'); rev++;
+            var quien = mk.por && perfiles && perfiles[mk.por] ? (perfiles[mk.por].name || 'Alguien') : 'Alguien';
+            st = 'Revisado · ' + quien.split(' ')[0];
+            b.title = 'Revisado por ' + quien + (mk.en ? ' · ' + horaCorta(mk.en) : '') + (puedeEscribir && listo ? '\nClic para desmarcar' : '');
+          } else if (conDatos[f]){
+            b.classList.add('pend'); pend++; st = 'Pendiente';
+            b.title = puedeEscribir && listo ? 'Clic para marcar como revisado' : 'Pendiente de revisión';
+          } else { st = 'Sin datos'; b.title = 'Sin programación cargada'; }
+          if (!listo || !puedeEscribir) b.disabled = true;
+          if (enVuelo[f]) b.disabled = true;
+          var n = document.createElement('span'); n.className = 'n'; n.textContent = d;
+          var bx = document.createElement('span'); bx.className = 'box'; bx.textContent = mk ? '✓' : '';
+          var s = document.createElement('span'); s.className = 'st'; s.textContent = st;
+          b.appendChild(n); b.appendChild(bx); b.appendChild(s);
+          grid.appendChild(b);
+        }
+        var sum = document.getElementById('ckSum');
+        sum.innerHTML = '<span class="chip good">' + rev + ' revisados</span>' +
+          '<span class="chip warning">' + pend + ' pendientes</span>';
+      };
+      if (usr && ids.length) usr.profiles(ids).then(pintar, function(){ pintar(null); }); else pintar(null);
+    }
+
+    grid.addEventListener('click', function(e){
+      var b = e.target.closest && e.target.closest('.ck-day');
+      if (!b || b.disabled || !db || !listo) return;
+      var f = b.dataset.f, ref = db.collection('revision').doc(f);
+      enVuelo[f] = 1; render();
+      var p = marcas[f] ? ref.delete() : ref.set({fecha: f, por: miId, en: new Date().toISOString()});
+      p.then(function(){ delete enVuelo[f]; render(); }, function(err){
+        delete enVuelo[f];
+        if (err && err.code === 'invalid_argument'){ puedeEscribir = false; note.textContent = 'Puedes ver las marcas, pero tu acceso a este dashboard no permite cambiarlas.'; }
+        else if (err && err.code === 'quota_exceeded'){ note.textContent = 'No se pudo guardar: la base de datos del dashboard está llena.'; }
+        else note.textContent = 'No se pudo guardar la marca, intenta de nuevo.';
+        render();
+      });
+    });
+    document.getElementById('ckPrev').addEventListener('click', function(){ mes = mesMas(mes, -1); render(); });
+    document.getElementById('ckNext').addEventListener('click', function(){ mes = mesMas(mes, 1); render(); });
+
+    render();
+    if (!(window.claude && typeof window.claude.use === 'function')){
+      note.textContent = 'Las marcas se guardan y se comparten solo en el dashboard de claude.ai; aquí el calendario se ve sin marcas.';
+      return;
+    }
+    Promise.all([window.claude.use('db'), window.claude.use('user')]).then(function(r){
+      db = r[0]; usr = r[1];
+      if (!db){ note.textContent = 'Inicia sesión en claude.ai para ver y marcar los días revisados.'; return; }
+      var permisos = usr ? Promise.all([usr.id(), usr.can('data.write')]) : Promise.resolve([null, null]);
+      permisos.then(function(pr){
+        miId = pr[0]; if (pr[1] === false) puedeEscribir = false;
+        var timer = setTimeout(function(){ note.textContent = 'No se pueden cargar las marcas todavía; puede que estén desactualizadas.'; }, 10000);
+        db.collection('revision').onSnapshot(function(snap){
+          var m = {};
+          snap.docs.forEach(function(d){ var x = d.data() || {}; if (/^\d{4}-\d{2}-\d{2}$/.test(d.id)) m[d.id] = {por: typeof x.por === 'string' ? x.por : null, en: typeof x.en === 'string' ? x.en : null}; });
+          marcas = m; listo = true;
+          if (!snap.metadata.fromCache){ clearTimeout(timer); }
+          note.textContent = puedeEscribir
+            ? 'Haz clic en un día para marcarlo como revisado (o desmarcarlo). Las marcas las ven todos los que abren este dashboard en claude.ai.'
+            : 'Puedes ver las marcas, pero tu acceso a este dashboard no permite cambiarlas.';
+          render();
+        }, function(err){
+          clearTimeout(timer); listo = false;
+          note.textContent = 'No se pudieron cargar las marcas (' + (err && err.code ? err.code : 'error') + ').';
+          render();
+        });
+      });
+    });
+  })();
 
     document.getElementById('btnExcelNomina').addEventListener('click', function(){
       var b = this;
