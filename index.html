@@ -1898,13 +1898,25 @@
      desde la Fecha inicial del corte hasta hoy, sin importar el día elegido
      en el filtro Fecha (2026-10-14, a pedido de la usuaria). Los KPIs de
      arriba siguen respetando el filtro Fecha. */
+  /* Persona + una fecha elegida en el filtro Fecha (2026-11-26, a pedido de
+     la usuaria): se muestra solo ese día, no todo el período. Con la fecha
+     por defecto (hoy) o "Todas" sigue mostrando desde la fecha inicial del
+     corte hasta hoy. */
+  function fechaElegida(){
+    var f = document.getElementById('fFecha').value;
+    return (f && f !== 'ALL' && f !== defaultFecha) ? f : null;
+  }
   function getPersonaRango(){
+    var fe = fechaElegida();
     var ini = document.getElementById('fGlobalIni').value;
     var turno = document.getElementById('fTurno').value;
     var search = normalize(document.getElementById('fSearch').value.trim());
     return baseRecords().filter(function(r){
-      if (ini && r.fecha < ini) return false;
-      if (r.fecha > todayISO) return false;
+      if (fe){ if (r.fecha !== fe) return false; }
+      else {
+        if (ini && r.fecha < ini) return false;
+        if (r.fecha > todayISO) return false;
+      }
       if (turno !== 'ALL' && r.turno !== turno) return false;
       return coincideBusqueda(r, search);
     });
@@ -1919,8 +1931,12 @@
     var search = normalize(document.getElementById('fSearch').value.trim());
     return despBase().filter(function(r){
       if (buscando){
-        if (ini && r.fecha < ini) return false;
-        if (r.fecha > todayISO) return false;
+        var fe = fechaElegida();
+        if (fe){ if (r.fecha !== fe) return false; }
+        else {
+          if (ini && r.fecha < ini) return false;
+          if (r.fecha > todayISO) return false;
+        }
         return coincideBusqueda(r, search);
       }
       return fecha === 'ALL' || r.fecha === fecha;
@@ -1933,7 +1949,7 @@
     if (tableArea === 'DESP'){
       renderTable(applyAsistenciaFilter(getDespTableRows(buscando)));
       var rcD = document.getElementById('rowCount');
-      rcD.textContent += ' · Despachos' + (buscando ? ' · ' + corteLabel(document.getElementById('fGlobalIni').value, todayISO) : '');
+      rcD.textContent += ' · Despachos' + (buscando ? ' · ' + (fechaElegida() ? fmtDateHuman(fechaElegida()) : corteLabel(document.getElementById('fGlobalIni').value, todayISO)) : '');
       var tdD = document.querySelector('#mainTbody .empty-row td');
       if (tdD) tdD.textContent = despRecords.length ? 'No hay registros de Despachos para este filtro.' : 'No hay datos de Despachos cargados.';
       renderCostChart();
@@ -1957,7 +1973,7 @@
     if (buscando){
       var ini = document.getElementById('fGlobalIni').value;
       var rc = document.getElementById('rowCount');
-      rc.textContent += ' · ' + corteLabel(ini, todayISO);
+      rc.textContent += ' · ' + (fechaElegida() ? fmtDateHuman(fechaElegida()) : corteLabel(ini, todayISO));
       if (/^0 /.test(rc.textContent)){
         var s = normalize(document.getElementById('fSearch').value);
         var todos = baseRecords().filter(function(r){ return coincideBusqueda(r, s); });
@@ -1965,7 +1981,9 @@
         if (td){
           if (todos.length){
             var ult = todos.map(function(r){ return r.fecha; }).sort().pop();
-            td.textContent = 'Esta persona no tiene registros entre el ' + fmtDateHuman(ini) + ' y hoy. Su último registro es del ' + (DATE_LABELS[ult] || ult) + '.';
+            td.textContent = fechaElegida()
+              ? 'Esta persona no tiene registro el ' + (DATE_LABELS[fechaElegida()] || fechaElegida()) + '.'
+              : 'Esta persona no tiene registros entre el ' + fmtDateHuman(ini) + ' y hoy. Su último registro es del ' + (DATE_LABELS[ult] || ult) + '.';
           } else {
             td.textContent = 'No se encontró a nadie con ese nombre o cédula.';
           }
