@@ -393,6 +393,10 @@
   #mainTable tbody tr.row-tarde td{background:rgba(167,139,250,.20);color:#ede9fe;}
   #mainTable tbody tr.row-tarde td:first-child{box-shadow:inset 3px 0 0 #a78bfa;}
   #mainTable tbody tr.row-tarde:hover td{background:rgba(167,139,250,.30);}
+  /* Horas registradas con asistencia IN / AU / PE / 0 en naranja (2026-11-26); gana sobre los demás colores */
+  #mainTable tbody tr.row-alerta td{background:rgba(249,115,22,.42);color:#fff7ed;}
+  #mainTable tbody tr.row-alerta td:first-child{box-shadow:inset 3px 0 0 #f97316;}
+  #mainTable tbody tr.row-alerta:hover td{background:rgba(249,115,22,.52);}
 
   /* ---- Filtro Fecha: calendario mensual ---- */
   .cal-wrap{position:relative;}
@@ -1877,7 +1881,9 @@
         var esDom = pf.length === 3 && new Date(pf[0], pf[1]-1, pf[2]).getDay() === 0;
         var esNoche = String(x.turno||'').replace(/\s+/g,'').toUpperCase().indexOf('9:30PM') === 0;
         var esTarde = String(x.turno||'').replace(/\s+/g,'').toUpperCase().indexOf('1:30PM') !== -1;
-        var cls = [esDom ? 'row-domingo' : '', esNoche ? 'row-noche' : '', esTarde ? 'row-tarde' : ''].join(' ').replace(/\s+/g,' ').trim();
+        var conHoras = ['hed','hen','rn','rnd','td','hefd','hefn'].some(function(k){ return (+x[k] || 0) !== 0; });
+        var esAlerta = conHoras && ['IN','AU','PE','0'].indexOf(String(x.asistencia).trim().toUpperCase()) !== -1;
+        var cls = esAlerta ? 'row-alerta' : [esDom ? 'row-domingo' : '', esNoche ? 'row-noche' : '', esTarde ? 'row-tarde' : ''].join(' ').replace(/\s+/g,' ').trim();
         return '<tr'+(cls ? ' class="'+cls+'"' : '')+'>' +
           '<td>'+x.nombre+'</td>' +
           '<td>'+x.cedula+'</td>' +
