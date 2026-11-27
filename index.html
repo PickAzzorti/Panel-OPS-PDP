@@ -385,6 +385,10 @@
   #mainTable tbody tr.row-domingo td{background:rgba(248,113,113,.16);color:#fecaca;}
   #mainTable tbody tr.row-domingo td:first-child{box-shadow:inset 3px 0 0 var(--critical);}
   #mainTable tbody tr.row-domingo:hover td{background:rgba(248,113,113,.24);}
+  /* Turno 9:30 PM en azul (2026-11-26); si además es domingo, gana el azul */
+  #mainTable tbody tr.row-noche td{background:rgba(96,165,250,.18);color:#dbeafe;}
+  #mainTable tbody tr.row-noche td:first-child{box-shadow:inset 3px 0 0 var(--series-1);}
+  #mainTable tbody tr.row-noche:hover td{background:rgba(96,165,250,.28);}
 
   /* ---- Filtro Fecha: calendario mensual ---- */
   .cal-wrap{position:relative;}
@@ -1867,7 +1871,9 @@
         /* Domingos resaltados en rojo (2026-10-14, a pedido de la usuaria) */
         var pf = String(x.fecha||'').split('-').map(Number);
         var esDom = pf.length === 3 && new Date(pf[0], pf[1]-1, pf[2]).getDay() === 0;
-        return '<tr'+(esDom ? ' class="row-domingo"' : '')+'>' +
+        var esNoche = String(x.turno||'').replace(/\s+/g,'').toUpperCase().indexOf('9:30PM') === 0;
+        var cls = [esDom ? 'row-domingo' : '', esNoche ? 'row-noche' : ''].join(' ').trim();
+        return '<tr'+(cls ? ' class="'+cls+'"' : '')+'>' +
           '<td>'+x.nombre+'</td>' +
           '<td>'+x.cedula+'</td>' +
           '<td>'+dateLabel(x.fecha)+'</td>' +
