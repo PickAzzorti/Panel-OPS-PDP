@@ -2331,7 +2331,7 @@
           if (f > todayISO){ b.disabled = true; }
           else if (mk){
             b.classList.add('ok'); rev++;
-            var quien = mk.por && perfiles && perfiles[mk.por] ? (perfiles[mk.por].name || 'Alguien') : 'Alguien';
+            var quien = mk.por && perfiles && perfiles[mk.por] ? (perfiles[mk.por].name || 'Alguien') : (mk.por ? 'Alguien' : 'ti');
             st = 'Revisado · ' + quien.split(' ')[0];
             b.title = 'Revisado por ' + quien + (mk.en ? ' · ' + horaCorta(mk.en) : '') + (puedeEscribir && listo ? '\nClic para desmarcar' : '');
           } else if (conDatos[f]){
@@ -2372,7 +2372,18 @@
 
     render();
     if (!(window.claude && typeof window.claude.use === 'function')){
-      note.textContent = 'Las marcas se guardan y se comparten solo en el dashboard de claude.ai; aquí el calendario se ve sin marcas.';
+      /* Fuera de claude.ai (GitHub Pages / archivo local) no hay base de datos
+         compartida: las marcas se guardan en este navegador (2026-11-26). */
+      var KEY = 'pdpChecklistRevision';
+      try { marcas = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch(e){ marcas = {}; }
+      var guardarLocal = function(){ try { localStorage.setItem(KEY, JSON.stringify(marcas)); return true; } catch(e){ return false; } };
+      db = {collection: function(){ return {doc: function(f){ return {
+        set: function(v){ marcas[f] = {por: null, en: v.en}; return guardarLocal() ? Promise.resolve() : Promise.reject({code:'local'}); },
+        delete: function(){ delete marcas[f]; return guardarLocal() ? Promise.resolve() : Promise.reject({code:'local'}); }
+      }; } }; } };
+      listo = true;
+      note.textContent = 'Clic en un día para marcarlo como revisado. Aquí las marcas se guardan solo en este navegador; en el dashboard de claude.ai se comparten con todos.';
+      render();
       return;
     }
     Promise.all([window.claude.use('db'), window.claude.use('user')]).then(function(r){
